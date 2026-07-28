@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-const API = "https://arabic94.onrender.com";
+const API = "http://localhost:5000";
 const WORDS = [
   "I",
   "you",
@@ -102,6 +102,111 @@ const WORDS = [
   "sleep",
   "love",
 ];
+
+// ─── معاني الكلمات بالعربي ─────────────────────────────────────────────────
+const MEANINGS = {
+  I: "أنا",
+  you: "أنت",
+  he: "هو",
+  she: "هي",
+  we: "نحن",
+  they: "هم",
+  this: "هذا",
+  that: "ذلك",
+  these: "هؤلاء",
+  here: "هنا",
+  there: "هناك",
+  in: "في",
+  on: "على",
+  to: "إلى",
+  from: "من",
+  about: "عن",
+  with: "مع",
+  between: "بين",
+  under: "تحت",
+  over: "فوق",
+  then: "ثم",
+  and: "و",
+  or: "أو",
+  but: "لكن",
+  because: "لأن",
+  yes: "نعم",
+  no: "لا",
+  all: "كل",
+  some: "بعض",
+  many: "كثير",
+  few: "قليل",
+  today: "اليوم",
+  yesterday: "أمس",
+  tomorrow: "غداً",
+  morning: "صباح",
+  evening: "مساء",
+  house: "بيت",
+  door: "باب",
+  window: "نافذة",
+  room: "غرفة",
+  school: "مدرسة",
+  class: "صف",
+  book: "كتاب",
+  notebook: "دفتر",
+  pen: "قلم",
+  bag: "حقيبة",
+  teacher: "معلم",
+  student: "طالب",
+  boy: "ولد",
+  girl: "بنت",
+  mother: "أم",
+  father: "أب",
+  brother: "أخ",
+  sister: "أخت",
+  grandfather: "جد",
+  grandmother: "جدة",
+  child: "طفل",
+  man: "رجل",
+  woman: "امرأة",
+  friend: "صديق",
+  water: "ماء",
+  food: "طعام",
+  bread: "خبز",
+  milk: "حليب",
+  apple: "تفاحة",
+  car: "سيارة",
+  street: "شارع",
+  tree: "شجرة",
+  flower: "زهرة",
+  sun: "شمس",
+  moon: "قمر",
+  sky: "سماء",
+  earth: "أرض",
+  sea: "بحر",
+  river: "نهر",
+  mountain: "جبل",
+  color: "لون",
+  red: "أحمر",
+  blue: "أزرق",
+  green: "أخضر",
+  big: "كبير",
+  small: "صغير",
+  tall: "طويل",
+  short: "قصير",
+  beautiful: "جميل",
+  fast: "سريع",
+  slow: "بطيء",
+  open: "يفتح",
+  close: "يغلق",
+  go: "اذهب",
+  come: "تعال",
+  sit: "اجلس",
+  stand: "قف",
+  play: "العب",
+  write: "اكتب",
+  read: "اقرأ",
+  eat: "كل",
+  drink: "اشرب",
+  sleep: "نم",
+  love: "حب",
+};
+const meaningOf = (word) => MEANINGS[word] || "";
 
 const TOTAL_BATCHES = Math.ceil(WORDS.length / 5);
 
@@ -498,10 +603,12 @@ async function handleAvatarChosen(avatarId) {
     setQuizResults(newResults);
     if (correct) {
       animAvatar("happy");
-      setBubbleMsg("صحيح! أحسنت 🎉");
+      setBubbleMsg(`صحيح! أحسنت 🎉 (${quizTarget} = ${meaningOf(quizTarget)})`);
     } else {
       animAvatar("shake");
-      setBubbleMsg("خطأ! الكلمة كانت: " + quizTarget + " 💪");
+      setBubbleMsg(
+        `خطأ! الكلمة كانت: ${quizTarget} (${meaningOf(quizTarget)}) 💪`,
+      );
     }
 
     const nextRound = quizRound + 1;
@@ -636,10 +743,12 @@ async function handleContinue() {
     setReviewResults(newResults);
     if (correct) {
       animAvatar("happy");
-      setBubbleMsg("صحيح! 🎉");
+      setBubbleMsg(`صحيح! 🎉 (${reviewTarget} = ${meaningOf(reviewTarget)})`);
     } else {
       animAvatar("shake");
-      setBubbleMsg("الكلمة الصحيحة: " + reviewTarget);
+      setBubbleMsg(
+        `الكلمة الصحيحة: ${reviewTarget} (${meaningOf(reviewTarget)})`,
+      );
     }
     const next = reviewRound + 1;
     setTimeout(() => {
@@ -952,7 +1061,10 @@ async function handleContinue() {
                     onClick={() => handleReviewAnswer(w)}
                     disabled={!!reviewSelected}
                   >
-                    {w}
+                    <div>{w}</div>
+                    {reviewSelected && (
+                      <div style={styles.optionMeaning}>{meaningOf(w)}</div>
+                    )}
                   </button>
                 );
               })}
@@ -1062,6 +1174,7 @@ async function handleContinue() {
           </div>
 
           <div style={styles.wordText}>{currentWord}</div>
+          <div style={styles.wordMeaning}>{meaningOf(currentWord)}</div>
           <div style={styles.wordSub}>
             كلمة {toAr(wordPos + 1)} من ٥ — المجموعة {toAr(currentBatch + 1)}
           </div>
@@ -1157,7 +1270,10 @@ async function handleContinue() {
                   onClick={() => handleQuizAnswer(w)}
                   disabled={!!selectedOpt}
                 >
-                  {w}
+                  <div>{w}</div>
+                  {selectedOpt && (
+                    <div style={styles.optionMeaning}>{meaningOf(w)}</div>
+                  )}
                 </button>
               );
             })}
@@ -1364,6 +1480,13 @@ const styles = {
     textAlign: "center",
     marginBottom: 6,
   },
+  wordMeaning: {
+    fontSize: 22,
+    fontWeight: 600,
+    color: "#3b82f6",
+    marginBottom: 6,
+    textAlign: "center",
+  },
   wordSub: { fontSize: 14, color: "#94a3b8", marginBottom: 0 },
   btnPrimary: {
     background: "#3b82f6",
@@ -1475,6 +1598,13 @@ const styles = {
     direction: "ltr",
     transition: "border 0.15s, background 0.15s, transform 0.1s",
     lineHeight: 1.2,
+  },
+  optionMeaning: {
+    fontSize: 14,
+    fontWeight: 500,
+    marginTop: 4,
+    direction: "rtl",
+    color: "#64748b",
   },
   scoreWrap: { textAlign: "center", marginBottom: 16 },
   scoreBig: { fontSize: 64, fontWeight: 800, color: "#3b82f6", lineHeight: 1 },
