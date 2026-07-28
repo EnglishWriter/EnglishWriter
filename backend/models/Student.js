@@ -7,6 +7,7 @@ function toPublicJSON(row) {
   return {
     id: row.id,
     name: row.name,
+    fav: fav,
     age: row.age,
     avatar: row.avatar,
     totalBatches: row.total_batches,

@@ -4,13 +4,13 @@ import reactLogo from "./assets/react.svg";
 import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import "./App.css";
-import ArabicReader from "./components/ArabicReader";
+import EnglishReader from "./components/EnglishReader";
 function App() {
   const [count, setCount] = useState(0);
 
   return (
     <Routes>
-      <Route path="/" element={<ArabicReader />} />
+      <Route path="/" element={<EnglishReader />} />
     </Routes>
   );
 }
