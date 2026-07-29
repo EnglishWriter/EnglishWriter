@@ -4,14 +4,14 @@ import reactLogo from "./assets/react.svg";
 import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import "./App.css";
-import EnglishReader from "./components/EnglishReader";
+import EnglishWriter from "./components/EnglishWriter";
 // في App.jsx الخاص فيك
 function App() {
   const [count, setCount] = useState(0);
 
   return (
     <Routes>
-      <Route path="/" element={<EnglishReader />} />
+      <Route path="/" element={<EnglishWriter />} />
     </Routes>
   );
 }
