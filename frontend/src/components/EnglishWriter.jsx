@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+
 const API = "http://localhost:5000";
 const WORDS = [
   "I",
@@ -211,7 +212,7 @@ const meaningOf = (word) => MEANINGS[word] || "";
 const TOTAL_BATCHES = Math.ceil(WORDS.length / 5);
 const COPIES_REQUIRED = 3;
 
-// ─── Avatars (4 choices: 2 for boys, 2 for girls) ──────────────────────────
+// ─── Avatars (4 choices) ─────────────────────────────────────────────────
 const AVATAR_OPTIONS = [
   { id: "boy1", emoji: "👦", label: "ولد" },
   { id: "boy2", emoji: "🦸‍♂️", label: "بطل خارق" },
@@ -227,21 +228,13 @@ function shuffle(arr) {
   return [...arr].sort(() => Math.random() - 0.5);
 }
 
-function speak(word, onEnd) {
-  const audio = new Audio(`./audio/${word}.mp3`);
-  if (onEnd) audio.onended = onEnd;
-  audio.play().catch((err) => {
-    console.error(`تعذر تشغيل الصوت للكلمة: ${word}`, err);
-  });
-}
-
 // ─── Main App ───────────────────────────────────────────────────────────────
 export default function EnglishWriter() {
-  // top-level screen: auth | avatarPick | menu | learn | write | review | done
+  // top-level screen: auth | avatarPick | menu | write | exam | review | done
   const [screen, setScreen] = useState("auth");
 
   // ── auth state ──
-  const [authMode, setAuthMode] = useState("login"); // login | register
+  const [authMode, setAuthMode] = useState("login");
   const [authName, setAuthName] = useState("");
   const [authAge, setAuthAge] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -253,18 +246,13 @@ export default function EnglishWriter() {
   // ── logged-in student ──
   const [student, setStudent] = useState(null);
 
-  // ── learn state ──
+  // ── batch & learning state ──
   const [batchStart, setBatchStart] = useState(0);
-  const [wordPos, setWordPos] = useState(0);
-  const [phase, setPhase] = useState("learn"); // learn | write
   const [avatarAnim, setAvatarAnim] = useState("");
-  const [bubbleMsg, setBubbleMsg] = useState(
-    "أهلاً! استمع للكلمة ثم انتقل للتالية 😊",
-  );
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [bubbleMsg, setBubbleMsg] = useState("أهلاً بك! جاهز للكتابة؟ 😊");
 
   // ── write (batch) state ──
-  const [writeWordPos, setWriteWordPos] = useState(0); // 0..4 index within batch
+  const [writeWordPos, setWriteWordPos] = useState(0); // 0..4
   const [writeStage, setWriteStage] = useState("copy"); // copy | missing
   const [copyCount, setCopyCount] = useState(0);
   const [copyInput, setCopyInput] = useState("");
@@ -272,12 +260,16 @@ export default function EnglishWriter() {
   const [missingIndex, setMissingIndex] = useState(0);
   const [missingInput, setMissingInput] = useState("");
   const [missingError, setMissingError] = useState(false);
-  const [writeMistakes, setWriteMistakes] = useState(0);
-  const [writeDone, setWriteDone] = useState(false);
   const missingInputRef = useRef(null);
   const copyInputRef = useRef(null);
 
-  // ── review (cumulative) exam state — dictation/spelling ──
+  // ── batch exam state (5 كلمات كتابة بدون أي خطأ) ──
+  const [examRound, setExamRound] = useState(0); // 0..4
+  const [examInput, setExamInput] = useState("");
+  const [examError, setExamError] = useState(false);
+  const examInputRef = useRef(null);
+
+  // ── review (cumulative) exam state ──
   const [reviewWords, setReviewWords] = useState([]);
   const [reviewRound, setReviewRound] = useState(0);
   const [reviewTarget, setReviewTarget] = useState("");
@@ -285,52 +277,45 @@ export default function EnglishWriter() {
   const [reviewResults, setReviewResults] = useState([]);
   const [reviewSelected, setReviewSelected] = useState(null);
   const [reviewDone, setReviewDone] = useState(false);
-  const reviewRepeatRef = useRef(null);
   const reviewInputRef = useRef(null);
 
-  const currentWordIdx = batchStart + wordPos;
-  const currentWord = WORDS[currentWordIdx];
-  const currentBatch = batchStart / 5;
+  const currentBatch = Math.floor(batchStart / 5);
   const currentWriteWord = WORDS[batchStart + writeWordPos];
+  const currentExamWord = WORDS[batchStart + examRound];
 
-  useEffect(() => {
-    return () => {
-      clearTimeout(reviewRepeatRef.current);
-    };
-  }, []);
   useEffect(() => {
     async function loadStudent() {
       const token = localStorage.getItem("token");
-
       if (!token) return;
 
       const res = await fetch(`${API}/student/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
         const data = await res.json();
-
         setStudent(data.student);
-
         setScreen("menu");
       }
     }
-
     loadStudent();
   }, []);
 
-  // auto-focus inputs when the relevant stage becomes active
+  // Auto-focus inputs
   useEffect(() => {
-    if (screen === "write" && writeStage === "copy" && !writeDone) {
+    if (screen === "write" && writeStage === "copy") {
       copyInputRef.current?.focus();
     }
-    if (screen === "write" && writeStage === "missing" && !writeDone) {
+    if (screen === "write" && writeStage === "missing") {
       missingInputRef.current?.focus();
     }
-  }, [screen, writeStage, writeWordPos, missingIndex, writeDone]);
+  }, [screen, writeStage, writeWordPos, missingIndex]);
+
+  useEffect(() => {
+    if (screen === "exam") {
+      examInputRef.current?.focus();
+    }
+  }, [screen, examRound]);
 
   useEffect(() => {
     if (screen === "review" && !reviewDone) {
@@ -343,34 +328,20 @@ export default function EnglishWriter() {
     setTimeout(() => setAvatarAnim(""), 700);
   }
 
-  function speakWord(word, onEnd) {
-    setIsSpeaking(true);
-    animAvatar("talk");
-    speak(word, () => {
-      setIsSpeaking(false);
-      if (onEnd) onEnd();
-    });
-  }
-
   // ── Auth actions ─────────────────────────────────────────────────────────
   async function handleRegister() {
     setAuthError("");
-
     const name = authName.trim();
-
     if (!name || !authAge || !authPassword) {
       setAuthError("الرجاء تعبئة كل الحقول");
       return;
     }
-
     setAuthBusy(true);
 
     try {
       const res = await fetch(`${API}/register`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
           age: Number(authAge),
@@ -379,16 +350,13 @@ export default function EnglishWriter() {
       });
 
       const data = await res.json();
-
       if (!res.ok) {
         setAuthError(data.error);
         return;
       }
 
       localStorage.setItem("token", data.token);
-
       setPendingProfile(data.student);
-
       setScreen("avatarPick");
     } catch (err) {
       setAuthError("تعذر الاتصال بالسيرفر");
@@ -396,40 +364,32 @@ export default function EnglishWriter() {
       setAuthBusy(false);
     }
   }
+
   async function handleLogin() {
     setAuthError("");
-
     if (!authName || !authPassword) {
       setAuthError("الاسم وكلمة المرور مطلوبان");
       return;
     }
-
     setAuthBusy(true);
 
     try {
       const res = await fetch(`${API}/login`, {
         method: "POST",
-
-        headers: {
-          "Content-Type": "application/json",
-        },
-
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: authName.trim(),
-
           password: authPassword,
         }),
       });
 
       const data = await res.json();
-
       if (!res.ok) {
         setAuthError(data.error);
         return;
       }
 
       localStorage.setItem("token", data.token);
-
       enterAppWithStudent(data.student);
     } catch (err) {
       setAuthError("تعذر الاتصال بالسيرفر");
@@ -450,63 +410,38 @@ export default function EnglishWriter() {
 
   async function handleAvatarChosen(avatarId) {
     try {
-      // إذا كان تغيير أفتار لطالب موجود
       if (editingAvatarOnly && student) {
         const token = localStorage.getItem("token");
-
         const res = await fetch(`${API}/student/avatar`, {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            avatar: avatarId,
-          }),
+          body: JSON.stringify({ avatar: avatarId }),
         });
 
         const data = await res.json();
-
-        if (!res.ok) {
-          console.log(data.error);
-          return;
-        }
+        if (!res.ok) return;
 
         setStudent(data.student);
         setEditingAvatarOnly(false);
         setScreen("menu");
-
         return;
       }
 
-      // اختيار الأفتار أول مرة بعد التسجيل
-      const profile = {
-        ...pendingProfile,
-        avatar: avatarId,
-        maxBatchReached: 0,
-        batchPassed: Array(TOTAL_BATCHES).fill(false),
-        createdAt: Date.now(),
-      };
-
       const token = localStorage.getItem("token");
-
       const res = await fetch(`${API}/student/avatar`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          avatar: avatarId,
-        }),
+        body: JSON.stringify({ avatar: avatarId }),
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        console.log(data.error);
-        return;
-      }
+      if (!res.ok) return;
 
       enterAppWithStudent(data.student);
     } catch (err) {
@@ -515,15 +450,11 @@ export default function EnglishWriter() {
   }
 
   function handleLogout() {
-    clearTimeout(reviewRepeatRef.current);
-    window.speechSynthesis?.cancel();
     setStudent(null);
     setAuthMode("login");
     setScreen("auth");
-    setPhase("learn");
     setBatchStart(0);
-    setWordPos(0);
-    setBubbleMsg("أهلاً! استمع للكلمة ثم انتقل للتالية 😊");
+    setBubbleMsg("أهلاً بك! جاهز للكتابة؟ 😊");
   }
 
   // ── Menu ─────────────────────────────────────────────────────────────────
@@ -531,10 +462,7 @@ export default function EnglishWriter() {
     if (!student) return;
     const nextBatchIdx = Math.min(student.maxBatchReached, TOTAL_BATCHES - 1);
     setBatchStart(nextBatchIdx * 5);
-    setWordPos(0);
-    setPhase("learn");
-    setScreen("learn");
-    setBubbleMsg("هيا بنا نتعلم! 🚀");
+    startWrite(nextBatchIdx * 5);
   }
 
   function startReviewExam() {
@@ -549,32 +477,12 @@ export default function EnglishWriter() {
     setReviewSelected(null);
     setReviewInput("");
     setScreen("review");
-    setBubbleMsg("امتحان إملاء لكل الكلمات اللي خلصتها! ✍️");
-    setTimeout(() => buildReviewRound(pool, 0), 300);
-  }
-
-  // ── Learn phase ──────────────────────────────────────────────────────────
-  function handleSpeak() {
-    setBubbleMsg("استمع جيداً... 👂");
-    speakWord(currentWord);
-  }
-  function handleNext() {
-    if (wordPos < 4) {
-      setWordPos(wordPos + 1);
-      setBubbleMsg("ممتاز! كلمة جديدة 🌟");
-    } else {
-      startWrite();
-    }
-  }
-  function handlePrev() {
-    if (wordPos > 0) {
-      setWordPos(wordPos - 1);
-      setBubbleMsg("العودة للكلمة السابقة ↩️");
-    }
+    setBubbleMsg("امتحان إملاء شامل للكلمات التي تعلمتها! ✍️");
+    buildReviewRound(pool, 0);
   }
 
   // ── Write phase (copy x3 then missing-letter) ───────────────────────────
-  function resetWordWrite(pos) {
+  function resetWordWrite() {
     setWriteStage("copy");
     setCopyCount(0);
     setCopyInput("");
@@ -584,57 +492,51 @@ export default function EnglishWriter() {
     setMissingError(false);
   }
 
-  function startWrite() {
-    setPhase("write");
+  function startWrite(bStart = batchStart) {
     setScreen("write");
     setWriteWordPos(0);
-    setWriteMistakes(0);
-    setWriteDone(false);
-    resetWordWrite(0);
+    resetWordWrite();
     setBubbleMsg(
-      `انسخ الكلمة ${toAr(COPIES_REQUIRED)} مرات، بعدين خمّن الحرف الناقص ✍️`,
+      `انسخ الكلمة ${toAr(COPIES_REQUIRED)} مرات، ثم اكمل تمارين الحرف الناقص ✍️`
     );
   }
 
   function moveToNextWriteWord() {
     const next = writeWordPos + 1;
     if (next >= 5) {
-      setWriteDone(true);
-      setBubbleMsg(
-        writeMistakes === 0
-          ? "ممتاز! كتبت كل الكلمات صح من أول مرة 🏆"
-          : `أحسنت! أنهيت المجموعة (${toAr(writeMistakes)} محاولة غلط) 💪`,
-      );
-      animAvatar("happy");
+      startBatchExam();
     } else {
       setWriteWordPos(next);
-      resetWordWrite(next);
-      setBubbleMsg("كلمة جديدة! هيا نكتبها 📝");
+      resetWordWrite();
+      setBubbleMsg("كلمة جديدة! اكتبها 3 مرات 📝");
     }
   }
 
   function handleCopySubmit() {
     if (!copyInput.trim()) return;
-    const ok = copyInput.trim().toLowerCase() === currentWriteWord.toLowerCase();
+    const ok =
+      copyInput.trim().toLowerCase() === currentWriteWord.toLowerCase();
     if (ok) {
       const newCount = copyCount + 1;
       setCopyCount(newCount);
       setCopyInput("");
       setCopyError(false);
       animAvatar("happy");
+
       if (newCount >= COPIES_REQUIRED) {
-        setBubbleMsg("رائع! والآن خمّن الحرف الناقص 🧩");
+        setBubbleMsg("ممتاز! الآن اكتب الحرف الناقص بالأمر 🧩");
         setWriteStage("missing");
         setMissingIndex(0);
         setMissingInput("");
       } else {
-        setBubbleMsg(`أحسنت! انسخها ${toAr(COPIES_REQUIRED - newCount)} مرة كمان ✍️`);
+        setBubbleMsg(
+          `أحسنت! اكتبها كمان ${toAr(COPIES_REQUIRED - newCount)} مرة ✍️`
+        );
       }
     } else {
       setCopyError(true);
-      setWriteMistakes((m) => m + 1);
       animAvatar("shake");
-      setBubbleMsg("مو مضبوط، دقق بالحروف وحاول كمان مرة 🔎");
+      setBubbleMsg("الكلمة غير صحيحة، حاول مجدداً 🔎");
     }
   }
 
@@ -642,31 +544,71 @@ export default function EnglishWriter() {
     if (!missingInput.trim()) return;
     const correctLetter = currentWriteWord[missingIndex].toLowerCase();
     const ok = missingInput.trim().toLowerCase() === correctLetter;
+
     if (ok) {
       animAvatar("happy");
       setMissingError(false);
       const nextIdx = missingIndex + 1;
+
       if (nextIdx >= currentWriteWord.length) {
-        setBubbleMsg(`ممتاز! أكملت كلمة "${currentWriteWord}" ✅`);
+        setBubbleMsg(`ممتاز! أتممت الكلمة "${currentWriteWord}" بنجاح ✅`);
         setTimeout(() => moveToNextWriteWord(), 700);
       } else {
-        setBubbleMsg("صح! والحرف الجاي؟ 🧩");
+        setBubbleMsg("إجابة صحيحة! الحرف التالي؟ 🧩");
         setMissingIndex(nextIdx);
         setMissingInput("");
       }
     } else {
       setMissingError(true);
       setMissingInput("");
-      setWriteMistakes((m) => m + 1);
       animAvatar("shake");
-      setBubbleMsg("حاول كمان مرة، ركّز على شكل الكلمة 💪");
+      setBubbleMsg("الحرف غير صحيح، ركّز وحاول مجدداً 💪");
     }
   }
 
-  async function saveProgress() {
-    const token = localStorage.getItem("token");
+  // ── Batch Exam (5 كلمات - كتابة فقط بدون أي غلط) ─────────────────────────
+  function startBatchExam() {
+    setScreen("exam");
+    setExamRound(0);
+    setExamInput("");
+    setExamError(false);
+    setBubbleMsg("اختبار المجموعة! اكتب الكلمة الصحيحة للترجمة الظاهرة 📝");
+  }
 
-    const batchIndex = batchStart / 5;
+  function handleExamSubmit() {
+    if (!examInput.trim()) return;
+    const ok =
+      examInput.trim().toLowerCase() === currentExamWord.toLowerCase();
+
+    if (ok) {
+      animAvatar("happy");
+      setExamError(false);
+      const nextRound = examRound + 1;
+
+      if (nextRound >= 5) {
+        saveProgressAndContinue();
+      } else {
+        setExamRound(nextRound);
+        setExamInput("");
+        setBubbleMsg("إجابة صحيحة! الكلمة التالية 🌟");
+      }
+    } else {
+      setExamError(true);
+      animAvatar("shake");
+      setBubbleMsg(
+        "خطأ! تم إعادة الاختبار. يجب الإجابة عن الـ 5 كلمات بدون أي غلط ❌"
+      );
+      setTimeout(() => {
+        setExamRound(0);
+        setExamInput("");
+        setExamError(false);
+      }, 1500);
+    }
+  }
+
+  async function saveProgressAndContinue() {
+    const token = localStorage.getItem("token");
+    const batchIndex = Math.floor(batchStart / 5);
 
     const res = await fetch(`${API}/student/progress`, {
       method: "PUT",
@@ -674,94 +616,52 @@ export default function EnglishWriter() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        batchIndex,
-        passed: true,
-      }),
+      body: JSON.stringify({ batchIndex, passed: true }),
     });
 
     const data = await res.json();
-
     if (res.ok) {
       setStudent(data.student);
     }
-  }
-
-  async function handleContinue() {
-    window.speechSynthesis?.cancel();
-
-    await saveProgress();
 
     const nextBatch = batchStart + 5;
-
     if (nextBatch >= WORDS.length) {
       setScreen("done");
-      setBubbleMsg("أحسنت! أكملت جميع الكلمات 🎊");
+      setBubbleMsg("أحسنت! أكملت جميع الكلمات بنجاح 🎊");
       animAvatar("happy");
       return;
     }
 
     setBatchStart(nextBatch);
-    setWordPos(0);
-    setPhase("learn");
-    setScreen("learn");
-    setBubbleMsg("مجموعة جديدة! هيا نتعلم 🚀");
+    startWrite(nextBatch);
   }
 
-  function handleReviewWords() {
-    window.speechSynthesis?.cancel();
-    setWordPos(0);
-    setPhase("learn");
-    setScreen("learn");
-    setBubbleMsg("راجع الكلمات وارجع للكتابة 📖");
-  }
-
-  function handleRetryWrite() {
-    window.speechSynthesis?.cancel();
-    startWrite();
-  }
-
-  // ── Cumulative review (dictation / spelling test) ───────────────────────
+  // ── Review Exam ──────────────────────────────────────────────────────────
   function buildReviewRound(pool, round) {
     const target = pool[round];
     setReviewTarget(target);
     setReviewInput("");
     setReviewSelected(null);
-    setTimeout(() => {
-      speakWord(target);
-      scheduleReviewRepeat(target);
-    }, 400);
-  }
-
-  function scheduleReviewRepeat(word) {
-    clearTimeout(reviewRepeatRef.current);
-    reviewRepeatRef.current = setTimeout(() => {
-      speakWord(word, () => scheduleReviewRepeat(word));
-    }, 3500);
-  }
-
-  function handleReviewReplay() {
-    speakWord(reviewTarget);
-    scheduleReviewRepeat(reviewTarget);
   }
 
   function handleReviewSubmit() {
     if (reviewSelected || !reviewInput.trim()) return;
-    clearTimeout(reviewRepeatRef.current);
-    window.speechSynthesis?.cancel();
-    const correct = reviewInput.trim().toLowerCase() === reviewTarget.toLowerCase();
+    const correct =
+      reviewInput.trim().toLowerCase() === reviewTarget.toLowerCase();
     setReviewSelected({ input: reviewInput, correct });
     const newResults = [...reviewResults, correct];
     setReviewResults(newResults);
+
     if (correct) {
       animAvatar("happy");
       setBubbleMsg(`صحيح! 🎉 (${reviewTarget} = ${meaningOf(reviewTarget)})`);
     } else {
       animAvatar("shake");
       setBubbleMsg(
-        `الكلمة الصحيحة: ${reviewTarget} (${meaningOf(reviewTarget)})`,
+        `الكلمة الصحيحة: ${reviewTarget} (${meaningOf(reviewTarget)})`
       );
     }
+
     const next = reviewRound + 1;
     setTimeout(() => {
       if (next < reviewWords.length) {
@@ -771,7 +671,9 @@ export default function EnglishWriter() {
         setReviewDone(true);
         const score = newResults.filter(Boolean).length;
         setBubbleMsg(
-          `انتهى امتحان الإملاء! نتيجتك ${toAr(score)}/${toAr(reviewWords.length)} 🏆`,
+          `انتهى الامتحان! نتيجتك ${toAr(score)}/${toAr(
+            reviewWords.length
+          )} 🏆`
         );
         animAvatar(score >= Math.ceil(reviewWords.length * 0.8) ? "happy" : "");
       }
@@ -779,9 +681,7 @@ export default function EnglishWriter() {
   }
 
   // ── Progress ─────────────────────────────────────────────────────────────
-  const learnedCount = student
-    ? student.maxBatchReached * 5 + (screen === "learn" ? wordPos : 0)
-    : 0;
+  const learnedCount = student ? student.maxBatchReached * 5 : 0;
   const progressPct = Math.round((learnedCount / WORDS.length) * 100);
 
   // ══════════════════════════════════════════════════════════════════════
@@ -808,6 +708,19 @@ export default function EnglishWriter() {
             >
               تسجيل الدخول
             </button>
+            {/*
+            <button
+              style={
+                authMode === "register" ? styles.tabActive : styles.tabInactive
+              }
+              onClick={() => {
+                setAuthMode("register");
+                setAuthError("");
+              }}
+            >
+              حساب جديد
+            </button>
+*/}
           </div>
 
           <input
@@ -850,8 +763,8 @@ export default function EnglishWriter() {
             {authBusy
               ? "..."
               : authMode === "login"
-                ? "دخول 🔑"
-                : "إنشاء الحساب →"}
+              ? "دخول 🔑"
+              : "إنشاء الحساب →"}
           </button>
 
           <div style={styles.hintNote}>
@@ -922,7 +835,7 @@ export default function EnglishWriter() {
           >
             {student.maxBatchReached < TOTAL_BATCHES ? (
               <button style={styles.btnPrimary} onClick={goToLearning}>
-                متابعة التعلم 🚀
+                متابعة الكتابة 🚀
               </button>
             ) : (
               <div
@@ -944,7 +857,7 @@ export default function EnglishWriter() {
               onClick={startReviewExam}
               disabled={student.maxBatchReached <= 0}
             >
-              ✍️ امتحان إملاء لكل الكلمات اللي خلصتها
+              ✍️ امتحان إملاء شامل
             </button>
             <button
               style={styles.btnSecondary}
@@ -993,6 +906,67 @@ export default function EnglishWriter() {
     );
   }
 
+  if (screen === "exam") {
+    return (
+      <div style={styles.root}>
+        <div
+          style={{
+            ...styles.avatar,
+            animation:
+              avatarAnim === "happy"
+                ? "bounce 0.5s ease"
+                : avatarAnim === "shake"
+                ? "shake 0.4s ease"
+                : "none",
+          }}
+        >
+          {avatarEmoji(student.avatar)}
+        </div>
+        <div style={styles.bubble}>{bubbleMsg}</div>
+
+        <div style={styles.card}>
+          <div style={styles.quizHeader}>
+            <span style={styles.quizTitle}>
+              اختبار المجموعة {toAr(currentBatch + 1)}
+            </span>
+            <span style={styles.quizRound}>
+              {toAr(examRound + 1)} / ٥
+            </span>
+          </div>
+
+          <div style={styles.wordMeaning}>{meaningOf(currentExamWord)}</div>
+          <p style={styles.quizHint}>اكتب الكلمة الإنجليزية المعبرة عن المعنى أعلاه 👇</p>
+
+          <input
+            ref={examInputRef}
+            style={{
+              ...styles.writeInput,
+              ...(examError ? styles.inputWrong : {}),
+            }}
+            value={examInput}
+            onChange={(e) => {
+              setExamInput(e.target.value);
+              setExamError(false);
+            }}
+            onKeyDown={(e) => e.key === "Enter" && handleExamSubmit()}
+            placeholder="اكتب الكلمة كاملة..."
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+
+          <button
+            style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
+            onClick={handleExamSubmit}
+            disabled={!examInput.trim()}
+          >
+            تحقق ✓
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (screen === "review") {
     return (
       <div style={styles.root}>
@@ -1000,13 +974,11 @@ export default function EnglishWriter() {
           style={{
             ...styles.avatar,
             animation:
-              avatarAnim === "talk"
-                ? "pulse 0.3s ease infinite alternate"
-                : avatarAnim === "happy"
-                  ? "bounce 0.5s ease"
-                  : avatarAnim === "shake"
-                    ? "shake 0.4s ease"
-                    : "none",
+              avatarAnim === "happy"
+                ? "bounce 0.5s ease"
+                : avatarAnim === "shake"
+                ? "shake 0.4s ease"
+                : "none",
           }}
         >
           {avatarEmoji(student.avatar)}
@@ -1016,21 +988,14 @@ export default function EnglishWriter() {
         {!reviewDone ? (
           <div style={styles.card}>
             <div style={styles.quizHeader}>
-              <span style={styles.quizTitle}>امتحان الإملاء</span>
+              <span style={styles.quizTitle}>امتحان الإملاء الشامل</span>
               <span style={styles.quizRound}>
                 {toAr(reviewRound + 1)} / {toAr(reviewWords.length)}
               </span>
             </div>
 
-            <p style={styles.quizHint}>استمع واكتب الكلمة كاملة 👇</p>
-
-            <button
-              style={{ ...styles.btnListen, marginBottom: 16 }}
-              onClick={handleReviewReplay}
-              disabled={isSpeaking}
-            >
-              <SpeakerIcon /> &nbsp; إعادة الصوت
-            </button>
+            <div style={styles.wordMeaning}>{meaningOf(reviewTarget)}</div>
+            <p style={styles.quizHint}>اكتب الكلمة بالإنجليزية 👇</p>
 
             <input
               ref={reviewInputRef}
@@ -1054,7 +1019,7 @@ export default function EnglishWriter() {
 
             {reviewSelected && !reviewSelected.correct && (
               <div style={styles.correctAnswerNote}>
-                الصح: <b>{reviewTarget}</b> ({meaningOf(reviewTarget)})
+                الصح: <b>{reviewTarget}</b>
               </div>
             )}
 
@@ -1087,7 +1052,7 @@ export default function EnglishWriter() {
               }}
             >
               <button style={styles.btnPrimary} onClick={startReviewExam}>
-                🔁 أعد امتحان الإملاء
+                🔁 أعد الامتحان
               </button>
               <button
                 style={styles.btnSecondary}
@@ -1102,7 +1067,7 @@ export default function EnglishWriter() {
     );
   }
 
-  // ── learn & write screens (batch flow) ──
+  // ── write screen (batch flow) ──
   return (
     <div style={styles.root}>
       <div style={styles.topBar}>
@@ -1126,8 +1091,8 @@ export default function EnglishWriter() {
                 i < student.maxBatchReached
                   ? "#3b82f6"
                   : i === currentBatch
-                    ? "#93c5fd"
-                    : "#e2e8f0",
+                  ? "#93c5fd"
+                  : "#e2e8f0",
             }}
           />
         ))}
@@ -1137,13 +1102,11 @@ export default function EnglishWriter() {
         style={{
           ...styles.avatar,
           animation:
-            avatarAnim === "talk"
-              ? "pulse 0.3s ease infinite alternate"
-              : avatarAnim === "happy"
-                ? "bounce 0.5s ease"
-                : avatarAnim === "shake"
-                  ? "shake 0.4s ease"
-                  : "none",
+            avatarAnim === "happy"
+              ? "bounce 0.5s ease"
+              : avatarAnim === "shake"
+              ? "shake 0.4s ease"
+              : "none",
         }}
       >
         {avatarEmoji(student.avatar)}
@@ -1151,62 +1114,7 @@ export default function EnglishWriter() {
 
       <div style={styles.bubble}>{bubbleMsg}</div>
 
-      {screen === "learn" && (
-        <div style={styles.card}>
-          <div style={styles.miniDots}>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                style={{
-                  ...styles.miniDot,
-                  background:
-                    i < wordPos
-                      ? "#3b82f6"
-                      : i === wordPos
-                        ? "#93c5fd"
-                        : "#e2e8f0",
-                  transform: i === wordPos ? "scale(1.3)" : "scale(1)",
-                }}
-              />
-            ))}
-          </div>
-
-          <div style={styles.wordText}>{currentWord}</div>
-          <div style={styles.wordMeaning}>{meaningOf(currentWord)}</div>
-          <div style={styles.wordSub}>
-            كلمة {toAr(wordPos + 1)} من ٥ — المجموعة {toAr(currentBatch + 1)}
-          </div>
-
-          <button
-            style={{ ...styles.btnPrimary, marginTop: 20 }}
-            onClick={handleSpeak}
-            disabled={isSpeaking}
-          >
-            <SpeakerIcon /> &nbsp; استمع للكلمة
-          </button>
-
-          <div style={styles.navRow}>
-            <button
-              style={styles.btnSecondary}
-              onClick={handlePrev}
-              disabled={wordPos === 0}
-            >
-              ← السابقة
-            </button>
-            <button style={styles.btnPrimary} onClick={handleNext}>
-              {wordPos === 4 ? "✍️ ابدأ الكتابة" : "التالية →"}
-            </button>
-          </div>
-          <button
-            style={{ ...styles.btnGhost, marginTop: 12 }}
-            onClick={() => setScreen("menu")}
-          >
-            🏠 القائمة الرئيسية
-          </button>
-        </div>
-      )}
-
-      {screen === "write" && !writeDone && (
+      {screen === "write" && (
         <div style={styles.card}>
           <div style={styles.quizHeader}>
             <span style={styles.quizTitle}>
@@ -1227,8 +1135,8 @@ export default function EnglishWriter() {
                     i < writeWordPos
                       ? "#22c55e"
                       : i === writeWordPos
-                        ? "#93c5fd"
-                        : "#e2e8f0",
+                      ? "#93c5fd"
+                      : "#e2e8f0",
                   transform: i === writeWordPos ? "scale(1.3)" : "scale(1)",
                 }}
               />
@@ -1236,14 +1144,6 @@ export default function EnglishWriter() {
           </div>
 
           <div style={styles.wordMeaning}>{meaningOf(currentWriteWord)}</div>
-
-          <button
-            style={{ ...styles.btnListen, marginTop: 10, marginBottom: 18 }}
-            onClick={() => speakWord(currentWriteWord)}
-            disabled={isSpeaking}
-          >
-            <SpeakerIcon /> &nbsp; استمع للكلمة
-          </button>
 
           {writeStage === "copy" && (
             <>
@@ -1321,7 +1221,7 @@ export default function EnglishWriter() {
                     <div key={i} style={styles.letterBox}>
                       {ch}
                     </div>
-                  ),
+                  )
                 )}
               </div>
 
@@ -1344,50 +1244,7 @@ export default function EnglishWriter() {
         </div>
       )}
 
-      {screen === "write" && writeDone && (
-        <div style={styles.card}>
-          <div style={styles.scoreWrap}>
-            <div style={styles.scoreBig}>
-              {toAr(5)}
-              <span style={styles.scoreOf}>/٥</span>
-            </div>
-            <div style={styles.scoreLabel}>
-              كلمات أنهيتها كتابةً
-              {writeMistakes > 0 && (
-                <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
-                  ({toAr(writeMistakes)} محاولة غلط)
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              marginTop: 24,
-              width: "100%",
-            }}
-          >
-            <button style={styles.btnPrimary} onClick={handleContinue}>
-              متابعة للمجموعة الجاية 🚀
-            </button>
-            <button style={styles.btnSecondary} onClick={handleRetryWrite}>
-              🔁 أعد كتابة المجموعة
-            </button>
-            <button style={styles.btnSecondary} onClick={handleReviewWords}>
-              📖 راجع الكلمات الـ٥
-            </button>
-            <button style={styles.btnGhost} onClick={() => setScreen("menu")}>
-              🏠 القائمة الرئيسية
-            </button>
-          </div>
-        </div>
-      )}
-
       <style>{`
-        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.07); } }
         @keyframes bounce { 0%,100%{transform:scale(1) rotate(0)} 30%{transform:scale(1.15) rotate(-8deg)} 70%{transform:scale(1.15) rotate(8deg)} }
         @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
         button:hover:not(:disabled) { filter: brightness(0.95); }
@@ -1395,24 +1252,6 @@ export default function EnglishWriter() {
         button:disabled { opacity: 0.45; cursor: not-allowed; }
       `}</style>
     </div>
-  );
-}
-
-function SpeakerIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      style={{ verticalAlign: "middle" }}
-    >
-      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-    </svg>
   );
 }
 
@@ -1530,7 +1369,6 @@ const styles = {
     marginBottom: 6,
     textAlign: "center",
   },
-  wordSub: { fontSize: 14, color: "#94a3b8", marginBottom: 0 },
   btnPrimary: {
     background: "#3b82f6",
     color: "#fff",
@@ -1581,27 +1419,6 @@ const styles = {
     cursor: "pointer",
     direction: "rtl",
   },
-  btnListen: {
-    background: "#eff6ff",
-    color: "#3b82f6",
-    border: "1.5px solid #bfdbfe",
-    borderRadius: 99,
-    padding: "12px 28px",
-    fontSize: 15,
-    fontWeight: 600,
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    direction: "rtl",
-  },
-  navRow: {
-    display: "flex",
-    gap: 10,
-    marginTop: 16,
-    width: "100%",
-    justifyContent: "center",
-  },
   quizHeader: {
     display: "flex",
     justifyContent: "space-between",
@@ -1640,7 +1457,9 @@ const styles = {
     boxSizing: "border-box",
     padding: "14px 18px",
     borderRadius: 14,
-    border: "1.5px solid #e2e8f0",
+    border: "1.5px solid #334155",
+    background: "#1e293b",
+    color: "#ffffff",
     fontSize: 22,
     direction: "ltr",
     textAlign: "center",
@@ -1650,13 +1469,13 @@ const styles = {
   },
   inputCorrect: {
     border: "2px solid #22c55e",
-    background: "#f0fdf4",
-    color: "#15803d",
+    background: "#052e16",
+    color: "#86efac",
   },
   inputWrong: {
     border: "2px solid #ef4444",
-    background: "#fef2f2",
-    color: "#b91c1c",
+    background: "#450a0a",
+    color: "#fca5a5",
   },
   correctAnswerNote: {
     marginTop: 10,
@@ -1675,25 +1494,26 @@ const styles = {
     width: 44,
     height: 52,
     borderRadius: 10,
-    background: "#f1f5f9",
-    border: "1.5px solid #e2e8f0",
+    background: "#334155",
+    border: "1.5px solid #475569",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontSize: 26,
     fontWeight: 700,
-    color: "#1e293b",
+    color: "#ffffff",
   },
   letterInput: {
     width: 44,
     height: 52,
     borderRadius: 10,
     border: "2px solid #3b82f6",
+    background: "#1e293b",
+    color: "#ffffff",
     fontSize: 26,
     fontWeight: 700,
     textAlign: "center",
     outline: "none",
-    color: "#1e293b",
   },
   scoreWrap: { textAlign: "center", marginBottom: 16 },
   scoreBig: { fontSize: 64, fontWeight: 800, color: "#3b82f6", lineHeight: 1 },
@@ -1729,7 +1549,9 @@ const styles = {
     boxSizing: "border-box",
     padding: "12px 16px",
     borderRadius: 14,
-    border: "1.5px solid #e2e8f0",
+    border: "1.5px solid #334155",
+    background: "#1e293b",
+    color: "#ffffff",
     fontSize: 15,
     marginBottom: 12,
     direction: "rtl",
