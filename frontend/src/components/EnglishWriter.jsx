@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const API = "http://localhost:5000";
+const API = "https://englishwriter.onrender.com";
 const WORDS = [
   "I",
   "you",
