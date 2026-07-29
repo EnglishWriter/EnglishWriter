@@ -1,7 +1,7 @@
 {
-  "name": "arabic-reader-backend-neon",
+  "name": "english-writer-backend",
   "version": "1.0.0",
-  "description": "Backend API for the Arabic 100-words reading app (Neon Postgres)",
+  "description": "Backend API for English Writer app",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
