@@ -5,6 +5,7 @@ import viteLogo from "./assets/vite.svg";
 import heroImg from "./assets/hero.png";
 import "./App.css";
 import EnglishReader from "./components/EnglishReader";
+// في App.jsx الخاص فيك
 function App() {
   const [count, setCount] = useState(0);
 

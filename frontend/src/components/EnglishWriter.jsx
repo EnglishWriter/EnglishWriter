@@ -209,6 +209,7 @@ const MEANINGS = {
 const meaningOf = (word) => MEANINGS[word] || "";
 
 const TOTAL_BATCHES = Math.ceil(WORDS.length / 5);
+const COPIES_REQUIRED = 3;
 
 // ─── Avatars (4 choices: 2 for boys, 2 for girls) ──────────────────────────
 const AVATAR_OPTIONS = [
@@ -235,8 +236,8 @@ function speak(word, onEnd) {
 }
 
 // ─── Main App ───────────────────────────────────────────────────────────────
-export default function EnglishReader() {
-  // top-level screen: auth | avatarPick | menu | learn | quiz | review | done
+export default function EnglishWriter() {
+  // top-level screen: auth | avatarPick | menu | learn | write | review | done
   const [screen, setScreen] = useState("auth");
 
   // ── auth state ──
@@ -252,41 +253,48 @@ export default function EnglishReader() {
   // ── logged-in student ──
   const [student, setStudent] = useState(null);
 
-  // ── learn/quiz state ──
+  // ── learn state ──
   const [batchStart, setBatchStart] = useState(0);
   const [wordPos, setWordPos] = useState(0);
-  const [phase, setPhase] = useState("learn"); // learn | quiz
+  const [phase, setPhase] = useState("learn"); // learn | write
   const [avatarAnim, setAvatarAnim] = useState("");
   const [bubbleMsg, setBubbleMsg] = useState(
     "أهلاً! استمع للكلمة ثم انتقل للتالية 😊",
   );
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const [quizRound, setQuizRound] = useState(0);
-  const [quizTarget, setQuizTarget] = useState("");
-  const [quizOptions, setQuizOptions] = useState([]);
-  const [quizResults, setQuizResults] = useState([]);
-  const [selectedOpt, setSelectedOpt] = useState(null);
-  const [quizDone, setQuizDone] = useState(false);
-  const repeatRef = useRef(null);
+  // ── write (batch) state ──
+  const [writeWordPos, setWriteWordPos] = useState(0); // 0..4 index within batch
+  const [writeStage, setWriteStage] = useState("copy"); // copy | missing
+  const [copyCount, setCopyCount] = useState(0);
+  const [copyInput, setCopyInput] = useState("");
+  const [copyError, setCopyError] = useState(false);
+  const [missingIndex, setMissingIndex] = useState(0);
+  const [missingInput, setMissingInput] = useState("");
+  const [missingError, setMissingError] = useState(false);
+  const [writeMistakes, setWriteMistakes] = useState(0);
+  const [writeDone, setWriteDone] = useState(false);
+  const missingInputRef = useRef(null);
+  const copyInputRef = useRef(null);
 
-  // ── review (cumulative) exam state ──
+  // ── review (cumulative) exam state — dictation/spelling ──
   const [reviewWords, setReviewWords] = useState([]);
   const [reviewRound, setReviewRound] = useState(0);
   const [reviewTarget, setReviewTarget] = useState("");
-  const [reviewOptions, setReviewOptions] = useState([]);
+  const [reviewInput, setReviewInput] = useState("");
   const [reviewResults, setReviewResults] = useState([]);
   const [reviewSelected, setReviewSelected] = useState(null);
   const [reviewDone, setReviewDone] = useState(false);
   const reviewRepeatRef = useRef(null);
+  const reviewInputRef = useRef(null);
 
   const currentWordIdx = batchStart + wordPos;
   const currentWord = WORDS[currentWordIdx];
   const currentBatch = batchStart / 5;
+  const currentWriteWord = WORDS[batchStart + writeWordPos];
 
   useEffect(() => {
     return () => {
-      clearTimeout(repeatRef.current);
       clearTimeout(reviewRepeatRef.current);
     };
   }, []);
@@ -313,6 +321,22 @@ export default function EnglishReader() {
 
     loadStudent();
   }, []);
+
+  // auto-focus inputs when the relevant stage becomes active
+  useEffect(() => {
+    if (screen === "write" && writeStage === "copy" && !writeDone) {
+      copyInputRef.current?.focus();
+    }
+    if (screen === "write" && writeStage === "missing" && !writeDone) {
+      missingInputRef.current?.focus();
+    }
+  }, [screen, writeStage, writeWordPos, missingIndex, writeDone]);
+
+  useEffect(() => {
+    if (screen === "review" && !reviewDone) {
+      reviewInputRef.current?.focus();
+    }
+  }, [screen, reviewRound, reviewDone]);
 
   function animAvatar(type) {
     setAvatarAnim(type);
@@ -424,11 +448,45 @@ export default function EnglishReader() {
     setBubbleMsg(`أهلاً بعودتك يا ${profile.name}! 😊`);
   }
 
-async function handleAvatarChosen(avatarId) {
-  try {
+  async function handleAvatarChosen(avatarId) {
+    try {
+      // إذا كان تغيير أفتار لطالب موجود
+      if (editingAvatarOnly && student) {
+        const token = localStorage.getItem("token");
 
-    // إذا كان تغيير أفتار لطالب موجود
-    if (editingAvatarOnly && student) {
+        const res = await fetch(`${API}/student/avatar`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            avatar: avatarId,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          console.log(data.error);
+          return;
+        }
+
+        setStudent(data.student);
+        setEditingAvatarOnly(false);
+        setScreen("menu");
+
+        return;
+      }
+
+      // اختيار الأفتار أول مرة بعد التسجيل
+      const profile = {
+        ...pendingProfile,
+        avatar: avatarId,
+        maxBatchReached: 0,
+        batchPassed: Array(TOTAL_BATCHES).fill(false),
+        createdAt: Date.now(),
+      };
 
       const token = localStorage.getItem("token");
 
@@ -450,57 +508,13 @@ async function handleAvatarChosen(avatarId) {
         return;
       }
 
-      setStudent(data.student);
-      setEditingAvatarOnly(false);
-      setScreen("menu");
-
-      return;
+      enterAppWithStudent(data.student);
+    } catch (err) {
+      console.log(err);
     }
-
-
-    // اختيار الأفتار أول مرة بعد التسجيل
-    const profile = {
-      ...pendingProfile,
-      avatar: avatarId,
-      maxBatchReached: 0,
-      batchPassed: Array(TOTAL_BATCHES).fill(false),
-      createdAt: Date.now(),
-    };
-
-
-    const token = localStorage.getItem("token");
-
-    const res = await fetch(`${API}/student/avatar`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        avatar: avatarId,
-      }),
-    });
-
-
-    const data = await res.json();
-
-
-    if (!res.ok) {
-      console.log(data.error);
-      return;
-    }
-
-
-    enterAppWithStudent(data.student);
-
-
-  } catch (err) {
-    console.log(err);
   }
-}
 
   function handleLogout() {
-    clearTimeout(repeatRef.current);
     clearTimeout(reviewRepeatRef.current);
     window.speechSynthesis?.cancel();
     setStudent(null);
@@ -533,8 +547,9 @@ async function handleAvatarChosen(avatarId) {
     setReviewResults([]);
     setReviewDone(false);
     setReviewSelected(null);
+    setReviewInput("");
     setScreen("review");
-    setBubbleMsg("امتحان شامل لكل الكلمات اللي خلصتها! 🎯");
+    setBubbleMsg("امتحان إملاء لكل الكلمات اللي خلصتها! ✍️");
     setTimeout(() => buildReviewRound(pool, 0), 300);
   }
 
@@ -548,7 +563,7 @@ async function handleAvatarChosen(avatarId) {
       setWordPos(wordPos + 1);
       setBubbleMsg("ممتاز! كلمة جديدة 🌟");
     } else {
-      startQuiz();
+      startWrite();
     }
   }
   function handlePrev() {
@@ -558,162 +573,159 @@ async function handleAvatarChosen(avatarId) {
     }
   }
 
-  // ── Batch quiz ───────────────────────────────────────────────────────────
-  function startQuiz() {
-    setPhase("quiz");
-    setScreen("quiz");
-    setQuizRound(0);
-    setQuizResults([]);
-    setQuizDone(false);
-    setSelectedOpt(null);
+  // ── Write phase (copy x3 then missing-letter) ───────────────────────────
+  function resetWordWrite(pos) {
+    setWriteStage("copy");
+    setCopyCount(0);
+    setCopyInput("");
+    setCopyError(false);
+    setMissingIndex(0);
+    setMissingInput("");
+    setMissingError(false);
+  }
+
+  function startWrite() {
+    setPhase("write");
+    setScreen("write");
+    setWriteWordPos(0);
+    setWriteMistakes(0);
+    setWriteDone(false);
+    resetWordWrite(0);
     setBubbleMsg(
-      "وقت الاختبار! لازم تجاوب صح على الكل عشان تفتح المجموعة الجاية 🎯",
+      `انسخ الكلمة ${toAr(COPIES_REQUIRED)} مرات، بعدين خمّن الحرف الناقص ✍️`,
     );
-    setTimeout(() => buildRound(0), 300);
   }
 
-  function buildRound(round) {
-    const targetWord = WORDS[batchStart + round];
-    const batchWords = WORDS.slice(batchStart, batchStart + 5);
-    const wrong = shuffle(batchWords.filter((w) => w !== targetWord));
-    const opts = shuffle([targetWord, ...wrong]);
-    setQuizTarget(targetWord);
-    setQuizOptions(opts);
-    setSelectedOpt(null);
-    setTimeout(() => {
-      speakWord(targetWord);
-      scheduleRepeat(targetWord);
-    }, 400);
-  }
-
-  function scheduleRepeat(word) {
-    clearTimeout(repeatRef.current);
-    repeatRef.current = setTimeout(() => {
-      speakWord(word, () => scheduleRepeat(word));
-    }, 3500);
-  }
-
-  function handleQuizAnswer(word) {
-    if (selectedOpt) return;
-    clearTimeout(repeatRef.current);
-    window.speechSynthesis?.cancel();
-    const correct = word === quizTarget;
-    setSelectedOpt({ word, correct });
-    const newResults = [...quizResults, correct];
-    setQuizResults(newResults);
-    if (correct) {
-      animAvatar("happy");
-      setBubbleMsg(`صحيح! أحسنت 🎉 (${quizTarget} = ${meaningOf(quizTarget)})`);
-    } else {
-      animAvatar("shake");
+  function moveToNextWriteWord() {
+    const next = writeWordPos + 1;
+    if (next >= 5) {
+      setWriteDone(true);
       setBubbleMsg(
-        `خطأ! الكلمة كانت: ${quizTarget} (${meaningOf(quizTarget)}) 💪`,
+        writeMistakes === 0
+          ? "ممتاز! كتبت كل الكلمات صح من أول مرة 🏆"
+          : `أحسنت! أنهيت المجموعة (${toAr(writeMistakes)} محاولة غلط) 💪`,
       );
+      animAvatar("happy");
+    } else {
+      setWriteWordPos(next);
+      resetWordWrite(next);
+      setBubbleMsg("كلمة جديدة! هيا نكتبها 📝");
+    }
+  }
+
+  function handleCopySubmit() {
+    if (!copyInput.trim()) return;
+    const ok = copyInput.trim().toLowerCase() === currentWriteWord.toLowerCase();
+    if (ok) {
+      const newCount = copyCount + 1;
+      setCopyCount(newCount);
+      setCopyInput("");
+      setCopyError(false);
+      animAvatar("happy");
+      if (newCount >= COPIES_REQUIRED) {
+        setBubbleMsg("رائع! والآن خمّن الحرف الناقص 🧩");
+        setWriteStage("missing");
+        setMissingIndex(0);
+        setMissingInput("");
+      } else {
+        setBubbleMsg(`أحسنت! انسخها ${toAr(COPIES_REQUIRED - newCount)} مرة كمان ✍️`);
+      }
+    } else {
+      setCopyError(true);
+      setWriteMistakes((m) => m + 1);
+      animAvatar("shake");
+      setBubbleMsg("مو مضبوط، دقق بالحروف وحاول كمان مرة 🔎");
+    }
+  }
+
+  function handleMissingSubmit() {
+    if (!missingInput.trim()) return;
+    const correctLetter = currentWriteWord[missingIndex].toLowerCase();
+    const ok = missingInput.trim().toLowerCase() === correctLetter;
+    if (ok) {
+      animAvatar("happy");
+      setMissingError(false);
+      const nextIdx = missingIndex + 1;
+      if (nextIdx >= currentWriteWord.length) {
+        setBubbleMsg(`ممتاز! أكملت كلمة "${currentWriteWord}" ✅`);
+        setTimeout(() => moveToNextWriteWord(), 700);
+      } else {
+        setBubbleMsg("صح! والحرف الجاي؟ 🧩");
+        setMissingIndex(nextIdx);
+        setMissingInput("");
+      }
+    } else {
+      setMissingError(true);
+      setMissingInput("");
+      setWriteMistakes((m) => m + 1);
+      animAvatar("shake");
+      setBubbleMsg("حاول كمان مرة، ركّز على شكل الكلمة 💪");
+    }
+  }
+
+  async function saveProgress() {
+    const token = localStorage.getItem("token");
+
+    const batchIndex = batchStart / 5;
+
+    const res = await fetch(`${API}/student/progress`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        batchIndex,
+        passed: true,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      setStudent(data.student);
+    }
+  }
+
+  async function handleContinue() {
+    window.speechSynthesis?.cancel();
+
+    await saveProgress();
+
+    const nextBatch = batchStart + 5;
+
+    if (nextBatch >= WORDS.length) {
+      setScreen("done");
+      setBubbleMsg("أحسنت! أكملت جميع الكلمات 🎊");
+      animAvatar("happy");
+      return;
     }
 
-    const nextRound = quizRound + 1;
-    setTimeout(() => {
-      if (nextRound < 5) {
-        setQuizRound(nextRound);
-        buildRound(nextRound);
-      } else {
-        setQuizDone(true);
-        const score = newResults.filter(Boolean).length;
-        if (score === 5) {
-          setBubbleMsg(
-            `ممتاز! نجحت بدون أي خطأ ${toAr(score)}/٥ 🏆 فتحت المجموعة الجاية!`,
-          );
-          animAvatar("happy");
-        } else {
-          setBubbleMsg(
-            `نتيجتك ${toAr(score)}/٥ — لازم تجاوب صح على الكل عشان تفتح المجموعة الجاية 💪`,
-          );
-        }
-      }
-    }, 1500);
+    setBatchStart(nextBatch);
+    setWordPos(0);
+    setPhase("learn");
+    setScreen("learn");
+    setBubbleMsg("مجموعة جديدة! هيا نتعلم 🚀");
   }
-
-  function handleReplay() {
-    speakWord(quizTarget);
-    scheduleRepeat(quizTarget);
-  }
-async function saveProgress(){
-
-  const token = localStorage.getItem("token");
-
-  const batchIndex = batchStart / 5;
-
-  const res = await fetch(`${API}/student/progress`,{
-    method:"PUT",
-    headers:{
-      "Content-Type":"application/json",
-      Authorization:`Bearer ${token}`
-    },
-    body:JSON.stringify({
-      batchIndex,
-      passed:true
-    })
-  });
-
-
-  const data = await res.json();
-
-
-  if(res.ok){
-    setStudent(data.student);
-  }
-
-}
-async function handleContinue() {
-  clearTimeout(repeatRef.current);
-  window.speechSynthesis?.cancel();
-
-  await saveProgress();
-
-  const nextBatch = batchStart + 5;
-
-  if (nextBatch >= WORDS.length) {
-    setScreen("done");
-    setBubbleMsg("أحسنت! أكملت جميع الكلمات 🎊");
-    animAvatar("happy");
-    return;
-  }
-
-  setBatchStart(nextBatch);
-  setWordPos(0);
-  setPhase("learn");
-  setScreen("learn");
-  setBubbleMsg("مجموعة جديدة! هيا نتعلم 🚀");
-} 
 
   function handleReviewWords() {
-    clearTimeout(repeatRef.current);
     window.speechSynthesis?.cancel();
     setWordPos(0);
     setPhase("learn");
     setScreen("learn");
-    setBubbleMsg("راجع الكلمات وارجع للاختبار 📖");
+    setBubbleMsg("راجع الكلمات وارجع للكتابة 📖");
   }
 
-  function handleRetryQuiz() {
-    clearTimeout(repeatRef.current);
+  function handleRetryWrite() {
     window.speechSynthesis?.cancel();
-    setQuizRound(0);
-    setQuizResults([]);
-    setQuizDone(false);
-    setSelectedOpt(null);
-    setBubbleMsg("حاول مرة ثانية! 💪");
-    setTimeout(() => buildRound(0), 300);
+    startWrite();
   }
 
-  // ── Cumulative review quiz ───────────────────────────────────────────────
+  // ── Cumulative review (dictation / spelling test) ───────────────────────
   function buildReviewRound(pool, round) {
     const target = pool[round];
-    const available = WORDS.slice(0, student.maxBatchReached * 5);
-    const wrong = shuffle(available.filter((w) => w !== target)).slice(0, 3);
-    const opts = shuffle([target, ...wrong]);
     setReviewTarget(target);
-    setReviewOptions(opts);
+    setReviewInput("");
     setReviewSelected(null);
     setTimeout(() => {
       speakWord(target);
@@ -733,12 +745,12 @@ async function handleContinue() {
     scheduleReviewRepeat(reviewTarget);
   }
 
-  function handleReviewAnswer(word) {
-    if (reviewSelected) return;
+  function handleReviewSubmit() {
+    if (reviewSelected || !reviewInput.trim()) return;
     clearTimeout(reviewRepeatRef.current);
     window.speechSynthesis?.cancel();
-    const correct = word === reviewTarget;
-    setReviewSelected({ word, correct });
+    const correct = reviewInput.trim().toLowerCase() === reviewTarget.toLowerCase();
+    setReviewSelected({ input: reviewInput, correct });
     const newResults = [...reviewResults, correct];
     setReviewResults(newResults);
     if (correct) {
@@ -759,11 +771,11 @@ async function handleContinue() {
         setReviewDone(true);
         const score = newResults.filter(Boolean).length;
         setBubbleMsg(
-          `انتهى الامتحان الشامل! نتيجتك ${toAr(score)}/${toAr(reviewWords.length)} 🏆`,
+          `انتهى امتحان الإملاء! نتيجتك ${toAr(score)}/${toAr(reviewWords.length)} 🏆`,
         );
         animAvatar(score >= Math.ceil(reviewWords.length * 0.8) ? "happy" : "");
       }
-    }, 1500);
+    }, 1600);
   }
 
   // ── Progress ─────────────────────────────────────────────────────────────
@@ -781,7 +793,7 @@ async function handleContinue() {
       <div style={styles.root}>
         <div style={{ ...styles.avatar, marginTop: 12 }}>🦉</div>
         <div style={styles.bubble}>
-          تعلّم قراءة ١٠٠ كلمة إنجليزية! سجّل حسابك أو ادخل عليه
+          تعلّم كتابة ١٠٠ كلمة إنجليزية! سجّل حسابك أو ادخل عليه
         </div>
         <div style={styles.card}>
           <div style={styles.tabRow}>
@@ -796,18 +808,6 @@ async function handleContinue() {
             >
               تسجيل الدخول
             </button>
-            {/*
-            <button
-              style={
-                authMode === "register" ? styles.tabActive : styles.tabInactive
-              }
-              onClick={() => {
-                setAuthMode("register");
-                setAuthError("");
-              }}
-            >
-              حساب جديد
-            </button>*/}
           </div>
 
           <input
@@ -854,8 +854,10 @@ async function handleContinue() {
                 : "إنشاء الحساب →"}
           </button>
 
-          <div style={styles.hintNote}>للاستفسار عن خدماتنا الاخرى او لملاحظاتكم عن هذه الخدمة يمكنكم التواصل على
-            0799142612</div>
+          <div style={styles.hintNote}>
+            للاستفسار عن خدماتنا الاخرى او لملاحظاتكم عن هذه الخدمة يمكنكم
+            التواصل على 0799142612
+          </div>
         </div>
       </div>
     );
@@ -942,7 +944,7 @@ async function handleContinue() {
               onClick={startReviewExam}
               disabled={student.maxBatchReached <= 0}
             >
-              🎯 امتحان شامل لكل الكلمات اللي خلصتها
+              ✍️ امتحان إملاء لكل الكلمات اللي خلصتها
             </button>
             <button
               style={styles.btnSecondary}
@@ -978,7 +980,7 @@ async function handleContinue() {
               textAlign: "center",
             }}
           >
-            أحسنت يا {student.name}! أتقنت جميع الكلمات
+            أحسنت يا {student.name}! أتقنت كتابة جميع الكلمات
           </div>
           <button
             style={{ ...styles.btnPrimary, marginTop: 20 }}
@@ -1014,13 +1016,13 @@ async function handleContinue() {
         {!reviewDone ? (
           <div style={styles.card}>
             <div style={styles.quizHeader}>
-              <span style={styles.quizTitle}>الامتحان الشامل</span>
+              <span style={styles.quizTitle}>امتحان الإملاء</span>
               <span style={styles.quizRound}>
                 {toAr(reviewRound + 1)} / {toAr(reviewWords.length)}
               </span>
             </div>
 
-            <p style={styles.quizHint}>استمع واختر الكلمة الصحيحة 👇</p>
+            <p style={styles.quizHint}>استمع واكتب الكلمة كاملة 👇</p>
 
             <button
               style={{ ...styles.btnListen, marginBottom: 16 }}
@@ -1030,45 +1032,41 @@ async function handleContinue() {
               <SpeakerIcon /> &nbsp; إعادة الصوت
             </button>
 
-            <div style={styles.optionsGrid}>
-              {reviewOptions.map((w) => {
-                let bg = "#fff",
-                  border = "1.5px solid #e2e8f0",
-                  color = "#1e293b";
-                if (reviewSelected) {
-                  if (w === reviewTarget) {
-                    bg = "#dcfce7";
-                    border = "2px solid #22c55e";
-                    color = "#15803d";
-                  } else if (
-                    w === reviewSelected.word &&
-                    !reviewSelected.correct
-                  ) {
-                    bg = "#fee2e2";
-                    border = "2px solid #ef4444";
-                    color = "#b91c1c";
-                  }
-                }
-                return (
-                  <button
-                    key={w}
-                    style={{
-                      ...styles.optionBtn,
-                      background: bg,
-                      border,
-                      color,
-                    }}
-                    onClick={() => handleReviewAnswer(w)}
-                    disabled={!!reviewSelected}
-                  >
-                    <div>{w}</div>
-                    {reviewSelected && (
-                      <div style={styles.optionMeaning}>{meaningOf(w)}</div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            <input
+              ref={reviewInputRef}
+              style={{
+                ...styles.writeInput,
+                ...(reviewSelected
+                  ? reviewSelected.correct
+                    ? styles.inputCorrect
+                    : styles.inputWrong
+                  : {}),
+              }}
+              value={reviewSelected ? reviewSelected.input : reviewInput}
+              onChange={(e) => setReviewInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleReviewSubmit()}
+              disabled={!!reviewSelected}
+              placeholder="اكتب الكلمة هنا..."
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+
+            {reviewSelected && !reviewSelected.correct && (
+              <div style={styles.correctAnswerNote}>
+                الصح: <b>{reviewTarget}</b> ({meaningOf(reviewTarget)})
+              </div>
+            )}
+
+            {!reviewSelected && (
+              <button
+                style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
+                onClick={handleReviewSubmit}
+                disabled={!reviewInput.trim()}
+              >
+                تحقق ✓
+              </button>
+            )}
           </div>
         ) : (
           <div style={styles.card}>
@@ -1077,7 +1075,7 @@ async function handleContinue() {
                 {toAr(reviewResults.filter(Boolean).length)}
                 <span style={styles.scoreOf}>/{toAr(reviewWords.length)}</span>
               </div>
-              <div style={styles.scoreLabel}>نتيجة الامتحان الشامل</div>
+              <div style={styles.scoreLabel}>نتيجة امتحان الإملاء</div>
             </div>
             <div
               style={{
@@ -1089,7 +1087,7 @@ async function handleContinue() {
               }}
             >
               <button style={styles.btnPrimary} onClick={startReviewExam}>
-                🔁 أعد الامتحان الشامل
+                🔁 أعد امتحان الإملاء
               </button>
               <button
                 style={styles.btnSecondary}
@@ -1104,7 +1102,7 @@ async function handleContinue() {
     );
   }
 
-  // ── learn & quiz screens (batch flow) ──
+  // ── learn & write screens (batch flow) ──
   return (
     <div style={styles.root}>
       <div style={styles.topBar}>
@@ -1196,7 +1194,7 @@ async function handleContinue() {
               ← السابقة
             </button>
             <button style={styles.btnPrimary} onClick={handleNext}>
-              {wordPos === 4 ? "🎯 ابدأ الاختبار" : "التالية →"}
+              {wordPos === 4 ? "✍️ ابدأ الكتابة" : "التالية →"}
             </button>
           </div>
           <button
@@ -1208,13 +1206,15 @@ async function handleContinue() {
         </div>
       )}
 
-      {screen === "quiz" && !quizDone && (
+      {screen === "write" && !writeDone && (
         <div style={styles.card}>
           <div style={styles.quizHeader}>
             <span style={styles.quizTitle}>
-              اختبار المجموعة {toAr(currentBatch + 1)}
+              كتابة المجموعة {toAr(currentBatch + 1)}
             </span>
-            <span style={styles.quizRound}>{toAr(quizRound + 1)} / ٥</span>
+            <span style={styles.quizRound}>
+              {toAr(writeWordPos + 1)} / ٥
+            </span>
           </div>
 
           <div style={styles.miniDots}>
@@ -1224,85 +1224,141 @@ async function handleContinue() {
                 style={{
                   ...styles.miniDot,
                   background:
-                    i < quizResults.length
-                      ? quizResults[i]
-                        ? "#22c55e"
-                        : "#ef4444"
-                      : i === quizRound
+                    i < writeWordPos
+                      ? "#22c55e"
+                      : i === writeWordPos
                         ? "#93c5fd"
                         : "#e2e8f0",
-                  transform: i === quizRound ? "scale(1.3)" : "scale(1)",
+                  transform: i === writeWordPos ? "scale(1.3)" : "scale(1)",
                 }}
               />
             ))}
           </div>
 
-          <p style={styles.quizHint}>استمع واختر الكلمة الصحيحة 👇</p>
+          <div style={styles.wordMeaning}>{meaningOf(currentWriteWord)}</div>
 
           <button
-            style={{ ...styles.btnListen, marginBottom: 16 }}
-            onClick={handleReplay}
+            style={{ ...styles.btnListen, marginTop: 10, marginBottom: 18 }}
+            onClick={() => speakWord(currentWriteWord)}
             disabled={isSpeaking}
           >
-            <SpeakerIcon /> &nbsp; إعادة الصوت
+            <SpeakerIcon /> &nbsp; استمع للكلمة
           </button>
 
-          <div style={styles.optionsGrid}>
-            {quizOptions.map((w) => {
-              let bg = "#fff",
-                border = "1.5px solid #e2e8f0",
-                color = "#1e293b";
-              if (selectedOpt) {
-                if (w === quizTarget) {
-                  bg = "#dcfce7";
-                  border = "2px solid #22c55e";
-                  color = "#15803d";
-                } else if (w === selectedOpt.word && !selectedOpt.correct) {
-                  bg = "#fee2e2";
-                  border = "2px solid #ef4444";
-                  color = "#b91c1c";
-                }
-              }
-              return (
-                <button
-                  key={w}
-                  style={{ ...styles.optionBtn, background: bg, border, color }}
-                  onClick={() => handleQuizAnswer(w)}
-                  disabled={!!selectedOpt}
-                >
-                  <div>{w}</div>
-                  {selectedOpt && (
-                    <div style={styles.optionMeaning}>{meaningOf(w)}</div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {writeStage === "copy" && (
+            <>
+              <div style={styles.wordText}>{currentWriteWord}</div>
+              <p style={styles.quizHint}>انسخ الكلمة كما هي 👇</p>
+
+              <div style={styles.copyDots}>
+                {Array.from({ length: COPIES_REQUIRED }).map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      ...styles.copyDot,
+                      background: i < copyCount ? "#22c55e" : "#e2e8f0",
+                    }}
+                  />
+                ))}
+              </div>
+
+              <input
+                ref={copyInputRef}
+                style={{
+                  ...styles.writeInput,
+                  ...(copyError ? styles.inputWrong : {}),
+                }}
+                value={copyInput}
+                onChange={(e) => {
+                  setCopyInput(e.target.value);
+                  setCopyError(false);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleCopySubmit()}
+                placeholder="اكتب الكلمة هنا..."
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+
+              <button
+                style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
+                onClick={handleCopySubmit}
+                disabled={!copyInput.trim()}
+              >
+                تحقق ✓
+              </button>
+            </>
+          )}
+
+          {writeStage === "missing" && (
+            <>
+              <p style={styles.quizHint}>خمّن الحرف الناقص 🧩</p>
+
+              <div style={styles.letterRow}>
+                {currentWriteWord.split("").map((ch, i) =>
+                  i === missingIndex ? (
+                    <input
+                      key={i}
+                      ref={missingInputRef}
+                      style={{
+                        ...styles.letterInput,
+                        ...(missingError ? styles.inputWrong : {}),
+                      }}
+                      value={missingInput}
+                      maxLength={1}
+                      onChange={(e) => {
+                        setMissingInput(e.target.value.slice(-1));
+                        setMissingError(false);
+                      }}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleMissingSubmit()
+                      }
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <div key={i} style={styles.letterBox}>
+                      {ch}
+                    </div>
+                  ),
+                )}
+              </div>
+
+              <button
+                style={{ ...styles.btnPrimary, marginTop: 20, width: "100%" }}
+                onClick={handleMissingSubmit}
+                disabled={!missingInput.trim()}
+              >
+                تحقق ✓
+              </button>
+            </>
+          )}
+
+          <button
+            style={{ ...styles.btnGhost, marginTop: 14 }}
+            onClick={() => setScreen("menu")}
+          >
+            🏠 القائمة الرئيسية
+          </button>
         </div>
       )}
 
-      {screen === "quiz" && quizDone && (
+      {screen === "write" && writeDone && (
         <div style={styles.card}>
           <div style={styles.scoreWrap}>
             <div style={styles.scoreBig}>
-              {toAr(quizResults.filter(Boolean).length)}
+              {toAr(5)}
               <span style={styles.scoreOf}>/٥</span>
             </div>
-            <div style={styles.scoreLabel}>نتيجتك</div>
-          </div>
-
-          <div style={styles.miniDots}>
-            {quizResults.map((r, i) => (
-              <div
-                key={i}
-                style={{
-                  ...styles.miniDot,
-                  background: r ? "#22c55e" : "#ef4444",
-                  width: 14,
-                  height: 14,
-                }}
-              />
-            ))}
+            <div style={styles.scoreLabel}>
+              كلمات أنهيتها كتابةً
+              {writeMistakes > 0 && (
+                <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 4 }}>
+                  ({toAr(writeMistakes)} محاولة غلط)
+                </div>
+              )}
+            </div>
           </div>
 
           <div
@@ -1314,24 +1370,11 @@ async function handleContinue() {
               width: "100%",
             }}
           >
-            {quizResults.every(Boolean) ? (
-              <button style={styles.btnPrimary} onClick={handleContinue}>
-                متابعة للمجموعة الجاية 🚀
-              </button>
-            ) : (
-              <div
-                style={{
-                  color: "#b91c1c",
-                  fontWeight: 600,
-                  fontSize: 14,
-                  textAlign: "center",
-                }}
-              >
-                لازم تنجح بدون أي خطأ عشان تفتح المجموعة الجاية
-              </div>
-            )}
-            <button style={styles.btnSecondary} onClick={handleRetryQuiz}>
-              🔁 أعد الاختبار
+            <button style={styles.btnPrimary} onClick={handleContinue}>
+              متابعة للمجموعة الجاية 🚀
+            </button>
+            <button style={styles.btnSecondary} onClick={handleRetryWrite}>
+              🔁 أعد كتابة المجموعة
             </button>
             <button style={styles.btnSecondary} onClick={handleReviewWords}>
               📖 راجع الكلمات الـ٥
@@ -1471,7 +1514,7 @@ const styles = {
     transition: "background 0.3s, transform 0.2s",
   },
   wordText: {
-    fontSize: 80,
+    fontSize: 64,
     fontWeight: 700,
     color: "#1e293b",
     fontFamily: "'Segoe UI', Arial, sans-serif",
@@ -1580,31 +1623,77 @@ const styles = {
     marginBottom: 8,
     textAlign: "center",
   },
-  optionsGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 12,
-    width: "100%",
-    marginTop: 4,
+  copyDots: {
+    display: "flex",
+    gap: 8,
+    marginBottom: 16,
+    justifyContent: "center",
   },
-  optionBtn: {
-    padding: "22px 10px",
+  copyDot: {
+    width: 14,
+    height: 14,
+    borderRadius: "50%",
+    transition: "background 0.3s",
+  },
+  writeInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "14px 18px",
     borderRadius: 14,
-    fontSize: 28,
-    fontWeight: 700,
-    cursor: "pointer",
+    border: "1.5px solid #e2e8f0",
+    fontSize: 22,
+    direction: "ltr",
     textAlign: "center",
     fontFamily: "'Segoe UI', Arial, sans-serif",
-    direction: "ltr",
-    transition: "border 0.15s, background 0.15s, transform 0.1s",
-    lineHeight: 1.2,
+    outline: "none",
+    transition: "border 0.15s, background 0.15s",
   },
-  optionMeaning: {
+  inputCorrect: {
+    border: "2px solid #22c55e",
+    background: "#f0fdf4",
+    color: "#15803d",
+  },
+  inputWrong: {
+    border: "2px solid #ef4444",
+    background: "#fef2f2",
+    color: "#b91c1c",
+  },
+  correctAnswerNote: {
+    marginTop: 10,
     fontSize: 14,
-    fontWeight: 500,
-    marginTop: 4,
-    direction: "rtl",
-    color: "#64748b",
+    color: "#b91c1c",
+    textAlign: "center",
+  },
+  letterRow: {
+    display: "flex",
+    gap: 8,
+    justifyContent: "center",
+    flexWrap: "wrap",
+    direction: "ltr",
+  },
+  letterBox: {
+    width: 44,
+    height: 52,
+    borderRadius: 10,
+    background: "#f1f5f9",
+    border: "1.5px solid #e2e8f0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 26,
+    fontWeight: 700,
+    color: "#1e293b",
+  },
+  letterInput: {
+    width: 44,
+    height: 52,
+    borderRadius: 10,
+    border: "2px solid #3b82f6",
+    fontSize: 26,
+    fontWeight: 700,
+    textAlign: "center",
+    outline: "none",
+    color: "#1e293b",
   },
   scoreWrap: { textAlign: "center", marginBottom: 16 },
   scoreBig: { fontSize: 64, fontWeight: 800, color: "#3b82f6", lineHeight: 1 },
