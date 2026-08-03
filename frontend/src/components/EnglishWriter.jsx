@@ -212,15 +212,45 @@ const meaningOf = (word) => MEANINGS[word] || "";
 const TOTAL_BATCHES = Math.ceil(WORDS.length / 5);
 const COPIES_REQUIRED = 3;
 
-// ─── Avatars (4 choices) ─────────────────────────────────────────────────
+// ─── Avatars الأساسية (تظهر عند إنشاء الحساب) ───────────────────────────────
 const AVATAR_OPTIONS = [
   { id: "boy1", emoji: "👦", label: "ولد" },
   { id: "boy2", emoji: "🦸‍♂️", label: "بطل خارق" },
   { id: "girl1", emoji: "👧", label: "بنت" },
   { id: "girl2", emoji: "🦸‍♀️", label: "بطلة خارقة" },
 ];
-const avatarEmoji = (id) =>
-  AVATAR_OPTIONS.find((a) => a.id === id)?.emoji || "🦉";
+
+// ─── مستويات فتح أفاتارات جديدة: كل اختبار مجموعة يفتح أفاتار ولد + أفاتار بنت ─
+// طول المصفوفة = عدد المجموعات (TOTAL_BATCHES) بحيث يوجد مستوى فتح لكل اختبار
+const UNLOCK_TIERS = [
+  { boy: { id: "boy_ninja", emoji: "🥷", label: "نينجا" }, girl: { id: "girl_fairy", emoji: "🧚‍♀️", label: "جنية" } },
+  { boy: { id: "boy_wizard", emoji: "🧙‍♂️", label: "ساحر" }, girl: { id: "girl_witch", emoji: "🧙‍♀️", label: "ساحرة" } },
+  { boy: { id: "boy_astro", emoji: "👨‍🚀", label: "رائد فضاء" }, girl: { id: "girl_astro", emoji: "👩‍🚀", label: "رائدة فضاء" } },
+  { boy: { id: "boy_detective", emoji: "🕵️‍♂️", label: "محقق" }, girl: { id: "girl_detective", emoji: "🕵️‍♀️", label: "محققة" } },
+  { boy: { id: "boy_cowboy", emoji: "🤠", label: "راعي بقر" }, girl: { id: "girl_mermaid", emoji: "🧜‍♀️", label: "حورية بحر" } },
+  { boy: { id: "boy_elf", emoji: "🧝‍♂️", label: "قزم" }, girl: { id: "girl_elf", emoji: "🧝‍♀️", label: "قزمة" } },
+  { boy: { id: "boy_genie", emoji: "🧞‍♂️", label: "جني" }, girl: { id: "girl_genie", emoji: "🧞‍♀️", label: "جنية المصباح" } },
+  { boy: { id: "boy_pilot", emoji: "👨‍✈️", label: "طيار" }, girl: { id: "girl_pilot", emoji: "👩‍✈️", label: "طيارة" } },
+  { boy: { id: "boy_firefighter", emoji: "👨‍🚒", label: "رجل إطفاء" }, girl: { id: "girl_firefighter", emoji: "👩‍🚒", label: "امرأة إطفاء" } },
+  { boy: { id: "boy_chef", emoji: "👨‍🍳", label: "طباخ" }, girl: { id: "girl_chef", emoji: "👩‍🍳", label: "طباخة" } },
+  { boy: { id: "boy_scientist", emoji: "👨‍🔬", label: "عالم" }, girl: { id: "girl_scientist", emoji: "👩‍🔬", label: "عالمة" } },
+  { boy: { id: "boy_artist", emoji: "👨‍🎨", label: "فنان" }, girl: { id: "girl_artist", emoji: "👩‍🎨", label: "فنانة" } },
+  { boy: { id: "boy_doctor", emoji: "👨‍⚕️", label: "طبيب" }, girl: { id: "girl_doctor", emoji: "👩‍⚕️", label: "طبيبة" } },
+  { boy: { id: "boy_farmer", emoji: "👨‍🌾", label: "مزارع" }, girl: { id: "girl_farmer", emoji: "👩‍🌾", label: "مزارعة" } },
+  { boy: { id: "boy_teacher", emoji: "👨‍🏫", label: "معلم" }, girl: { id: "girl_teacher", emoji: "👩‍🏫", label: "معلمة" } },
+  { boy: { id: "boy_rockstar", emoji: "👨‍🎤", label: "مغني" }, girl: { id: "girl_rockstar", emoji: "👩‍🎤", label: "مغنية" } },
+  { boy: { id: "boy_judge", emoji: "👨‍⚖️", label: "قاضي" }, girl: { id: "girl_judge", emoji: "👩‍⚖️", label: "قاضية" } },
+  { boy: { id: "boy_mechanic", emoji: "👨‍🔧", label: "ميكانيكي" }, girl: { id: "girl_mechanic", emoji: "👩‍🔧", label: "ميكانيكية" } },
+  { boy: { id: "boy_graduate", emoji: "👨‍🎓", label: "خريج" }, girl: { id: "girl_graduate", emoji: "👩‍🎓", label: "خريجة" } },
+  { boy: { id: "boy_king", emoji: "🤴", label: "أمير" }, girl: { id: "girl_princess", emoji: "👸", label: "أميرة" } },
+];
+
+function allUnlockedAvatars(maxBatchReached = 0) {
+  const extra = UNLOCK_TIERS.slice(0, maxBatchReached).flatMap((t) => [t.boy, t.girl]);
+  return [...AVATAR_OPTIONS, ...extra];
+}
+const avatarEmoji = (id, maxBatchReached = TOTAL_BATCHES) =>
+  allUnlockedAvatars(maxBatchReached).find((a) => a.id === id)?.emoji || "🦉";
 
 const toAr = (n) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[d]);
 
@@ -228,9 +258,67 @@ function shuffle(arr) {
   return [...arr].sort(() => Math.random() - 0.5);
 }
 
+// ─── مؤثرات صوتية (Web Audio API — بدون ملفات خارجية) ──────────────────────
+function useSounds() {
+  const ctxRef = useRef(null);
+
+  function getCtx() {
+    if (!ctxRef.current) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ctxRef.current = new AC();
+    }
+    if (ctxRef.current.state === "suspended") {
+      ctxRef.current.resume();
+    }
+    return ctxRef.current;
+  }
+
+  function tone({ freq, start = 0, duration = 0.14, type = "sine", volume = 0.22, glideTo = null }) {
+    const ctx = getCtx();
+    if (!ctx) return;
+    const t0 = ctx.currentTime + start;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, t0 + duration);
+    gain.gain.setValueAtTime(volume, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+  }
+
+  return {
+    playClick: () => tone({ freq: 720, duration: 0.06, type: "sine", volume: 0.15 }),
+    playCorrect: () => {
+      tone({ freq: 523.25, duration: 0.12, type: "sine", volume: 0.25 });
+      tone({ freq: 659.25, start: 0.1, duration: 0.16, type: "sine", volume: 0.25 });
+      tone({ freq: 783.99, start: 0.2, duration: 0.22, type: "sine", volume: 0.22 });
+    },
+    playWrong: () => {
+      tone({ freq: 220, duration: 0.22, type: "sawtooth", volume: 0.2, glideTo: 130 });
+    },
+    playCelebrate: () => {
+      tone({ freq: 523.25, duration: 0.1, type: "triangle", volume: 0.22 });
+      tone({ freq: 659.25, start: 0.09, duration: 0.1, type: "triangle", volume: 0.22 });
+      tone({ freq: 783.99, start: 0.18, duration: 0.1, type: "triangle", volume: 0.22 });
+      tone({ freq: 1046.5, start: 0.27, duration: 0.28, type: "triangle", volume: 0.24 });
+    },
+  };
+}
+
 // ─── Main App ───────────────────────────────────────────────────────────────
 export default function EnglishWriter() {
-  // top-level screen: auth | avatarPick | menu | write | exam | review | done
+  const { playClick, playCorrect, playWrong, playCelebrate } = useSounds();
+  const click = (fn) => (...args) => {
+    playClick();
+    if (fn) fn(...args);
+  };
+
+  // top-level screen: auth | avatarPick | menu | write | exam | avatarUnlock | review | done
   const [screen, setScreen] = useState("auth");
 
   // ── auth state ──
@@ -268,6 +356,12 @@ export default function EnglishWriter() {
   const [examInput, setExamInput] = useState("");
   const [examError, setExamError] = useState(false);
   const examInputRef = useRef(null);
+  const [showExamHelp, setShowExamHelp] = useState(false);
+  const [showReviewHelp, setShowReviewHelp] = useState(false);
+
+  // ── avatar unlock state ──
+  const [newlyUnlocked, setNewlyUnlocked] = useState(null); // { boy, girl }
+  const pendingAfterUnlockRef = useRef(null);
 
   // ── review (cumulative) exam state ──
   const [reviewWords, setReviewWords] = useState([]);
@@ -476,6 +570,7 @@ export default function EnglishWriter() {
     setReviewDone(false);
     setReviewSelected(null);
     setReviewInput("");
+    setShowReviewHelp(false);
     setScreen("review");
     setBubbleMsg("امتحان إملاء شامل للكلمات التي تعلمتها! ✍️");
     buildReviewRound(pool, 0);
@@ -512,11 +607,19 @@ export default function EnglishWriter() {
     }
   }
 
+  function goToPreviousWriteWord() {
+    if (writeWordPos <= 0) return;
+    setWriteWordPos(writeWordPos - 1);
+    resetWordWrite();
+    setBubbleMsg("رجعنا للكلمة السابقة، اكتبها 3 مرات 📝");
+  }
+
   function handleCopySubmit() {
     if (!copyInput.trim()) return;
     const ok =
       copyInput.trim().toLowerCase() === currentWriteWord.toLowerCase();
     if (ok) {
+      playCorrect();
       const newCount = copyCount + 1;
       setCopyCount(newCount);
       setCopyInput("");
@@ -534,6 +637,7 @@ export default function EnglishWriter() {
         );
       }
     } else {
+      playWrong();
       setCopyError(true);
       animAvatar("shake");
       setBubbleMsg("الكلمة غير صحيحة، حاول مجدداً 🔎");
@@ -546,6 +650,7 @@ export default function EnglishWriter() {
     const ok = missingInput.trim().toLowerCase() === correctLetter;
 
     if (ok) {
+      playCorrect();
       animAvatar("happy");
       setMissingError(false);
       const nextIdx = missingIndex + 1;
@@ -559,6 +664,7 @@ export default function EnglishWriter() {
         setMissingInput("");
       }
     } else {
+      playWrong();
       setMissingError(true);
       setMissingInput("");
       animAvatar("shake");
@@ -572,6 +678,7 @@ export default function EnglishWriter() {
     setExamRound(0);
     setExamInput("");
     setExamError(false);
+    setShowExamHelp(false);
     setBubbleMsg("اختبار المجموعة! اكتب الكلمة الصحيحة للترجمة الظاهرة 📝");
   }
 
@@ -581,6 +688,7 @@ export default function EnglishWriter() {
       examInput.trim().toLowerCase() === currentExamWord.toLowerCase();
 
     if (ok) {
+      playCorrect();
       animAvatar("happy");
       setExamError(false);
       const nextRound = examRound + 1;
@@ -593,6 +701,7 @@ export default function EnglishWriter() {
         setBubbleMsg("إجابة صحيحة! الكلمة التالية 🌟");
       }
     } else {
+      playWrong();
       setExamError(true);
       animAvatar("shake");
       setBubbleMsg(
@@ -625,15 +734,59 @@ export default function EnglishWriter() {
     }
 
     const nextBatch = batchStart + 5;
-    if (nextBatch >= WORDS.length) {
-      setScreen("done");
-      setBubbleMsg("أحسنت! أكملت جميع الكلمات بنجاح 🎊");
-      animAvatar("happy");
-      return;
-    }
+    const proceed = () => {
+      if (nextBatch >= WORDS.length) {
+        setScreen("done");
+        setBubbleMsg("أحسنت! أكملت جميع الكلمات بنجاح 🎊");
+        animAvatar("happy");
+        return;
+      }
+      setBatchStart(nextBatch);
+      startWrite(nextBatch);
+    };
 
-    setBatchStart(nextBatch);
-    startWrite(nextBatch);
+    const tier = UNLOCK_TIERS[batchIndex];
+    if (tier) {
+      setNewlyUnlocked(tier);
+      pendingAfterUnlockRef.current = proceed;
+      setScreen("avatarUnlock");
+      setBubbleMsg("🎉 فتحت أفاتارات جديدة! اختر أحدها الآن أو أكمل بأفاتارك الحالي");
+      animAvatar("happy");
+      playCelebrate();
+    } else {
+      proceed();
+    }
+  }
+
+  function equipUnlockedAvatar(avatarId) {
+    handleAvatarChosenPostUnlock(avatarId);
+  }
+
+  async function handleAvatarChosenPostUnlock(avatarId) {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API}/student/avatar`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ avatar: avatarId }),
+      });
+      const data = await res.json();
+      if (res.ok) setStudent(data.student);
+    } catch (err) {
+      console.log(err);
+    } finally {
+      continueAfterUnlock();
+    }
+  }
+
+  function continueAfterUnlock() {
+    setNewlyUnlocked(null);
+    const next = pendingAfterUnlockRef.current;
+    pendingAfterUnlockRef.current = null;
+    if (next) next();
   }
 
   // ── Review Exam ──────────────────────────────────────────────────────────
@@ -642,6 +795,7 @@ export default function EnglishWriter() {
     setReviewTarget(target);
     setReviewInput("");
     setReviewSelected(null);
+    setShowReviewHelp(false);
   }
 
   function handleReviewSubmit() {
@@ -653,9 +807,11 @@ export default function EnglishWriter() {
     setReviewResults(newResults);
 
     if (correct) {
+      playCorrect();
       animAvatar("happy");
       setBubbleMsg(`صحيح! 🎉 (${reviewTarget} = ${meaningOf(reviewTarget)})`);
     } else {
+      playWrong();
       animAvatar("shake");
       setBubbleMsg(
         `الكلمة الصحيحة: ${reviewTarget} (${meaningOf(reviewTarget)})`
@@ -701,26 +857,13 @@ export default function EnglishWriter() {
               style={
                 authMode === "login" ? styles.tabActive : styles.tabInactive
               }
-              onClick={() => {
+              onClick={click(() => {
                 setAuthMode("login");
                 setAuthError("");
-              }}
+              })}
             >
               تسجيل الدخول
             </button>
-            {/*
-            <button
-              style={
-                authMode === "register" ? styles.tabActive : styles.tabInactive
-              }
-              onClick={() => {
-                setAuthMode("register");
-                setAuthError("");
-              }}
-            >
-              حساب جديد
-            </button>
-*/}
           </div>
 
           <input
@@ -757,7 +900,7 @@ export default function EnglishWriter() {
               width: "100%",
               justifyContent: "center",
             }}
-            onClick={authMode === "login" ? handleLogin : handleRegister}
+            onClick={click(authMode === "login" ? handleLogin : handleRegister)}
             disabled={authBusy}
           >
             {authBusy
@@ -777,6 +920,9 @@ export default function EnglishWriter() {
   }
 
   if (screen === "avatarPick") {
+    const options = editingAvatarOnly
+      ? allUnlockedAvatars(student?.maxBatchReached || 0)
+      : AVATAR_OPTIONS;
     return (
       <div style={styles.root}>
         <div style={styles.bubble}>
@@ -786,11 +932,11 @@ export default function EnglishWriter() {
         </div>
         <div style={styles.card}>
           <div style={styles.avatarGrid}>
-            {AVATAR_OPTIONS.map((a) => (
+            {options.map((a) => (
               <button
                 key={a.id}
                 style={styles.avatarOption}
-                onClick={() => handleAvatarChosen(a.id)}
+                onClick={click(() => handleAvatarChosen(a.id))}
               >
                 <div style={{ fontSize: 56 }}>{a.emoji}</div>
                 <div style={{ fontSize: 14, color: "#64748b", marginTop: 6 }}>
@@ -804,10 +950,71 @@ export default function EnglishWriter() {
     );
   }
 
+  if (screen === "avatarUnlock" && newlyUnlocked) {
+    return (
+      <div style={styles.root}>
+        <div
+          style={{
+            ...styles.avatar,
+            animation: "bounce 0.5s ease",
+          }}
+        >
+          {avatarEmoji(student?.avatar, student?.maxBatchReached)}
+        </div>
+        <div style={styles.bubble}>{bubbleMsg}</div>
+        <div style={styles.card}>
+          <div
+            style={{
+              fontSize: 20,
+              fontWeight: 700,
+              color: "#1e293b",
+              marginBottom: 4,
+              textAlign: "center",
+            }}
+          >
+            🎉 فتحت أفاتارين جديدين!
+          </div>
+          <div
+            style={{
+              fontSize: 13,
+              color: "#94a3b8",
+              marginBottom: 18,
+              textAlign: "center",
+            }}
+          >
+            اختر واحداً لتفعيله الآن، أو تجاهل واستمر بأفتارك الحالي
+          </div>
+
+          <div style={styles.avatarGrid}>
+            {[newlyUnlocked.boy, newlyUnlocked.girl].map((a) => (
+              <button
+                key={a.id}
+                style={{ ...styles.avatarOption, borderColor: "#93c5fd" }}
+                onClick={click(() => equipUnlockedAvatar(a.id))}
+              >
+                <div style={{ fontSize: 56 }}>{a.emoji}</div>
+                <div style={{ fontSize: 14, color: "#64748b", marginTop: 6 }}>
+                  {a.label}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <button
+            style={{ ...styles.btnSecondary, marginTop: 18, width: "100%" }}
+            onClick={click(continueAfterUnlock)}
+          >
+            متابعة بدون تغيير الأفتار →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (screen === "menu") {
     return (
       <div style={styles.root}>
-        <div style={styles.avatar}>{avatarEmoji(student.avatar)}</div>
+        <div style={styles.avatar}>{avatarEmoji(student.avatar, student.maxBatchReached)}</div>
         <div style={styles.bubble}>{bubbleMsg}</div>
         <div style={styles.card}>
           <div style={{ fontSize: 20, fontWeight: 700, color: "#1e293b" }}>
@@ -834,7 +1041,7 @@ export default function EnglishWriter() {
             }}
           >
             {student.maxBatchReached < TOTAL_BATCHES ? (
-              <button style={styles.btnPrimary} onClick={goToLearning}>
+              <button style={styles.btnPrimary} onClick={click(goToLearning)}>
                 متابعة الكتابة 🚀
               </button>
             ) : (
@@ -854,21 +1061,21 @@ export default function EnglishWriter() {
                   ? styles.btnSecondary
                   : styles.btnDisabled
               }
-              onClick={startReviewExam}
+              onClick={click(startReviewExam)}
               disabled={student.maxBatchReached <= 0}
             >
               ✍️ امتحان إملاء شامل
             </button>
             <button
               style={styles.btnSecondary}
-              onClick={() => {
+              onClick={click(() => {
                 setEditingAvatarOnly(true);
                 setScreen("avatarPick");
-              }}
+              })}
             >
               🧑‍🎨 غيّر الأفتار
             </button>
-            <button style={styles.btnGhost} onClick={handleLogout}>
+            <button style={styles.btnGhost} onClick={click(handleLogout)}>
               🚪 تسجيل خروج
             </button>
           </div>
@@ -880,7 +1087,7 @@ export default function EnglishWriter() {
   if (screen === "done") {
     return (
       <div style={styles.root}>
-        <div style={styles.avatar}>{avatarEmoji(student.avatar)}</div>
+        <div style={styles.avatar}>{avatarEmoji(student.avatar, student.maxBatchReached)}</div>
         <div style={styles.bubble}>{bubbleMsg}</div>
         <div style={styles.card}>
           <div style={{ fontSize: 64 }}>🎊</div>
@@ -897,7 +1104,7 @@ export default function EnglishWriter() {
           </div>
           <button
             style={{ ...styles.btnPrimary, marginTop: 20 }}
-            onClick={() => setScreen("menu")}
+            onClick={click(() => setScreen("menu"))}
           >
             🏠 القائمة الرئيسية
           </button>
@@ -920,7 +1127,7 @@ export default function EnglishWriter() {
                 : "none",
           }}
         >
-          {avatarEmoji(student.avatar)}
+          {avatarEmoji(student.avatar, student.maxBatchReached)}
         </div>
         <div style={styles.bubble}>{bubbleMsg}</div>
 
@@ -936,6 +1143,24 @@ export default function EnglishWriter() {
 
           <div style={styles.wordMeaning}>{meaningOf(currentExamWord)}</div>
           <p style={styles.quizHint}>اكتب الكلمة الإنجليزية المعبرة عن المعنى أعلاه 👇</p>
+
+          <button
+            style={styles.btnHelp}
+            onClick={click(() => setShowExamHelp((v) => !v))}
+          >
+            {showExamHelp ? "🙈 إخفاء المراجعة" : "📖 مراجعة كلمات المجموعة"}
+          </button>
+
+          {showExamHelp && (
+            <div style={styles.helpPanel}>
+              {WORDS.slice(batchStart, batchStart + 5).map((w) => (
+                <div key={w} style={styles.helpRow}>
+                  <span style={styles.helpWord}>{w}</span>
+                  <span style={styles.helpMeaning}>{meaningOf(w)}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
           <input
             ref={examInputRef}
@@ -957,7 +1182,7 @@ export default function EnglishWriter() {
 
           <button
             style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
-            onClick={handleExamSubmit}
+            onClick={click(handleExamSubmit)}
             disabled={!examInput.trim()}
           >
             تحقق ✓
@@ -981,7 +1206,7 @@ export default function EnglishWriter() {
                 : "none",
           }}
         >
-          {avatarEmoji(student.avatar)}
+          {avatarEmoji(student.avatar, student.maxBatchReached)}
         </div>
         <div style={styles.bubble}>{bubbleMsg}</div>
 
@@ -996,6 +1221,26 @@ export default function EnglishWriter() {
 
             <div style={styles.wordMeaning}>{meaningOf(reviewTarget)}</div>
             <p style={styles.quizHint}>اكتب الكلمة بالإنجليزية 👇</p>
+
+            {!reviewSelected && (
+              <button
+                style={styles.btnHelp}
+                onClick={click(() => setShowReviewHelp((v) => !v))}
+              >
+                {showReviewHelp ? "🙈 إخفاء المراجعة" : "📖 مراجعة الكلمات اللي تعلمتها"}
+              </button>
+            )}
+
+            {showReviewHelp && !reviewSelected && (
+              <div style={styles.helpPanel}>
+                {WORDS.slice(0, student.maxBatchReached * 5).map((w) => (
+                  <div key={w} style={styles.helpRow}>
+                    <span style={styles.helpWord}>{w}</span>
+                    <span style={styles.helpMeaning}>{meaningOf(w)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <input
               ref={reviewInputRef}
@@ -1026,7 +1271,7 @@ export default function EnglishWriter() {
             {!reviewSelected && (
               <button
                 style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
-                onClick={handleReviewSubmit}
+                onClick={click(handleReviewSubmit)}
                 disabled={!reviewInput.trim()}
               >
                 تحقق ✓
@@ -1051,12 +1296,12 @@ export default function EnglishWriter() {
                 width: "100%",
               }}
             >
-              <button style={styles.btnPrimary} onClick={startReviewExam}>
+              <button style={styles.btnPrimary} onClick={click(startReviewExam)}>
                 🔁 أعد الامتحان
               </button>
               <button
                 style={styles.btnSecondary}
-                onClick={() => setScreen("menu")}
+                onClick={click(() => setScreen("menu"))}
               >
                 🏠 القائمة الرئيسية
               </button>
@@ -1109,7 +1354,7 @@ export default function EnglishWriter() {
               : "none",
         }}
       >
-        {avatarEmoji(student.avatar)}
+        {avatarEmoji(student.avatar, student.maxBatchReached)}
       </div>
 
       <div style={styles.bubble}>{bubbleMsg}</div>
@@ -1142,6 +1387,20 @@ export default function EnglishWriter() {
               />
             ))}
           </div>
+
+          <button
+            style={{
+              ...styles.btnGhost,
+              alignSelf: "flex-start",
+              marginBottom: 8,
+              opacity: writeWordPos === 0 ? 0.35 : 1,
+              cursor: writeWordPos === 0 ? "not-allowed" : "pointer",
+            }}
+            onClick={click(goToPreviousWriteWord)}
+            disabled={writeWordPos === 0}
+          >
+            ⬅️ الكلمة السابقة
+          </button>
 
           <div style={styles.wordMeaning}>{meaningOf(currentWriteWord)}</div>
 
@@ -1182,7 +1441,7 @@ export default function EnglishWriter() {
 
               <button
                 style={{ ...styles.btnPrimary, marginTop: 16, width: "100%" }}
-                onClick={handleCopySubmit}
+                onClick={click(handleCopySubmit)}
                 disabled={!copyInput.trim()}
               >
                 تحقق ✓
@@ -1227,7 +1486,7 @@ export default function EnglishWriter() {
 
               <button
                 style={{ ...styles.btnPrimary, marginTop: 20, width: "100%" }}
-                onClick={handleMissingSubmit}
+                onClick={click(handleMissingSubmit)}
                 disabled={!missingInput.trim()}
               >
                 تحقق ✓
@@ -1237,7 +1496,7 @@ export default function EnglishWriter() {
 
           <button
             style={{ ...styles.btnGhost, marginTop: 14 }}
-            onClick={() => setScreen("menu")}
+            onClick={click(() => setScreen("menu"))}
           >
             🏠 القائمة الرئيسية
           </button>
@@ -1439,6 +1698,46 @@ const styles = {
     color: "#64748b",
     marginBottom: 8,
     textAlign: "center",
+  },
+  btnHelp: {
+    background: "#eff6ff",
+    color: "#2563eb",
+    border: "1.5px solid #bfdbfe",
+    borderRadius: 99,
+    padding: "8px 18px",
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: "pointer",
+    marginBottom: 12,
+    direction: "rtl",
+  },
+  helpPanel: {
+    width: "100%",
+    maxHeight: 180,
+    overflowY: "auto",
+    background: "#f8fafc",
+    border: "1.5px solid #e2e8f0",
+    borderRadius: 14,
+    padding: "10px 14px",
+    marginBottom: 14,
+    boxSizing: "border-box",
+  },
+  helpRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "6px 2px",
+    borderBottom: "1px solid #e2e8f0",
+  },
+  helpWord: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "#1e293b",
+    direction: "ltr",
+  },
+  helpMeaning: {
+    fontSize: 14,
+    color: "#3b82f6",
   },
   copyDots: {
     display: "flex",
