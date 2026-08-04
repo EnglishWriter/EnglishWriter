@@ -1146,9 +1146,8 @@ export default function EnglishWriter() {
 
           <button
             style={styles.btnHelp}
-            onClick={click(() => setShowExamHelp((v) => !v))}
-          >
-            {showExamHelp ? "🙈 إخفاء المراجعة" : "📖 مراجعة كلمات المجموعة"}
+onClick={click(() => startWrite(batchStart))}          >
+            {"🔁 إعادة تمارين المجموعة"}
           </button>
 
           {showExamHelp && (
