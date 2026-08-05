@@ -209,7 +209,16 @@ const MEANINGS = {
 };
 const meaningOf = (word) => MEANINGS[word] || "";
 
-const TOTAL_BATCHES = Math.ceil(WORDS.length / 5);
+// ─── حجم مجموعة الامتحان حسب عمر الطالب ────────────────────────────────────
+// 4-7 سنوات: كل كلمتين امتحان | 8-13: كل 3 كلمات | 14-60: كل 5 كلمات
+function getBatchSizeForAge(age) {
+  const a = Number(age);
+  if (!a || Number.isNaN(a)) return 5;
+  if (a <= 7) return 2;
+  if (a <= 13) return 3;
+  return 5;
+}
+
 const COPIES_REQUIRED = 3;
 
 // ─── Avatars الأساسية (تظهر عند إنشاء الحساب) ───────────────────────────────
@@ -221,7 +230,9 @@ const AVATAR_OPTIONS = [
 ];
 
 // ─── مستويات فتح أفاتارات جديدة: كل اختبار مجموعة يفتح أفاتار ولد + أفاتار بنت ─
-// طول المصفوفة = عدد المجموعات (TOTAL_BATCHES) بحيث يوجد مستوى فتح لكل اختبار
+// ملاحظة: إذا كان عدد مجموعات الطالب أكبر من عدد هذه المستويات (بسبب مجموعات
+// أصغر عند الأعمار الصغيرة) فببساطة تتوقف فتحات الأفاتار الجديدة بعد آخر مستوى
+// موجود، بدون أي خطأ في التطبيق.
 const UNLOCK_TIERS = [
   { boy: { id: "boy_ninja", emoji: "🥷", label: "نينجا" }, girl: { id: "girl_fairy", emoji: "🧚‍♀️", label: "جنية" } },
   { boy: { id: "boy_wizard", emoji: "🧙‍♂️", label: "ساحر" }, girl: { id: "girl_witch", emoji: "🧙‍♀️", label: "ساحرة" } },
@@ -249,7 +260,7 @@ function allUnlockedAvatars(maxBatchReached = 0) {
   const extra = UNLOCK_TIERS.slice(0, maxBatchReached).flatMap((t) => [t.boy, t.girl]);
   return [...AVATAR_OPTIONS, ...extra];
 }
-const avatarEmoji = (id, maxBatchReached = TOTAL_BATCHES) =>
+const avatarEmoji = (id, maxBatchReached = UNLOCK_TIERS.length) =>
   allUnlockedAvatars(maxBatchReached).find((a) => a.id === id)?.emoji || "🦉";
 
 const toAr = (n) => String(n).replace(/\d/g, (d) => "٠١٢٣٤٥٦٧٨٩"[d]);
@@ -334,13 +345,17 @@ export default function EnglishWriter() {
   // ── logged-in student ──
   const [student, setStudent] = useState(null);
 
+  // ── حجم مجموعة الامتحان حسب عمر الطالب الحالي ──
+  const batchSize = getBatchSizeForAge(student?.age);
+  const totalBatches = Math.ceil(WORDS.length / batchSize);
+
   // ── batch & learning state ──
   const [batchStart, setBatchStart] = useState(0);
   const [avatarAnim, setAvatarAnim] = useState("");
   const [bubbleMsg, setBubbleMsg] = useState("أهلاً بك! جاهز للكتابة؟ 😊");
 
   // ── write (batch) state ──
-  const [writeWordPos, setWriteWordPos] = useState(0); // 0..4
+  const [writeWordPos, setWriteWordPos] = useState(0); // 0..batchSize-1
   const [writeStage, setWriteStage] = useState("copy"); // copy | missing
   const [copyCount, setCopyCount] = useState(0);
   const [copyInput, setCopyInput] = useState("");
@@ -351,8 +366,8 @@ export default function EnglishWriter() {
   const missingInputRef = useRef(null);
   const copyInputRef = useRef(null);
 
-  // ── batch exam state (5 كلمات كتابة بدون أي خطأ) ──
-  const [examRound, setExamRound] = useState(0); // 0..4
+  // ── batch exam state (batchSize كلمات كتابة بدون أي خطأ) ──
+  const [examRound, setExamRound] = useState(0); // 0..batchSize-1
   const [examInput, setExamInput] = useState("");
   const [examError, setExamError] = useState(false);
   const examInputRef = useRef(null);
@@ -373,7 +388,10 @@ export default function EnglishWriter() {
   const [reviewDone, setReviewDone] = useState(false);
   const reviewInputRef = useRef(null);
 
-  const currentBatch = Math.floor(batchStart / 5);
+  const currentBatch = Math.floor(batchStart / batchSize);
+  // عدد كلمات المجموعة الحالية فعلياً (آخر مجموعة قد تكون أصغر لو العدد الكلي
+  // للكلمات لا ينقسم بالتساوي على batchSize)
+  const currentBatchWordCount = Math.min(batchSize, WORDS.length - batchStart);
   const currentWriteWord = WORDS[batchStart + writeWordPos];
   const currentExamWord = WORDS[batchStart + examRound];
 
@@ -554,14 +572,14 @@ export default function EnglishWriter() {
   // ── Menu ─────────────────────────────────────────────────────────────────
   function goToLearning() {
     if (!student) return;
-    const nextBatchIdx = Math.min(student.maxBatchReached, TOTAL_BATCHES - 1);
-    setBatchStart(nextBatchIdx * 5);
-    startWrite(nextBatchIdx * 5);
+    const nextBatchIdx = Math.min(student.maxBatchReached, totalBatches - 1);
+    setBatchStart(nextBatchIdx * batchSize);
+    startWrite(nextBatchIdx * batchSize);
   }
 
   function startReviewExam() {
     if (!student || student.maxBatchReached <= 0) return;
-    const available = WORDS.slice(0, student.maxBatchReached * 5);
+    const available = WORDS.slice(0, student.maxBatchReached * batchSize);
     const total = Math.min(10, available.length);
     const pool = shuffle(available).slice(0, total);
     setReviewWords(pool);
@@ -598,7 +616,7 @@ export default function EnglishWriter() {
 
   function moveToNextWriteWord() {
     const next = writeWordPos + 1;
-    if (next >= 5) {
+    if (next >= currentBatchWordCount) {
       startBatchExam();
     } else {
       setWriteWordPos(next);
@@ -672,7 +690,7 @@ export default function EnglishWriter() {
     }
   }
 
-  // ── Batch Exam (5 كلمات - كتابة فقط بدون أي غلط) ─────────────────────────
+  // ── Batch Exam (batchSize كلمات - كتابة فقط بدون أي غلط) ─────────────────
   function startBatchExam() {
     setScreen("exam");
     setExamRound(0);
@@ -693,7 +711,7 @@ export default function EnglishWriter() {
       setExamError(false);
       const nextRound = examRound + 1;
 
-      if (nextRound >= 5) {
+      if (nextRound >= currentBatchWordCount) {
         saveProgressAndContinue();
       } else {
         setExamRound(nextRound);
@@ -705,7 +723,9 @@ export default function EnglishWriter() {
       setExamError(true);
       animAvatar("shake");
       setBubbleMsg(
-        "خطأ! تم إعادة الاختبار. يجب الإجابة عن الـ 5 كلمات بدون أي غلط ❌"
+        `خطأ! تم إعادة الاختبار. يجب الإجابة عن الـ ${toAr(
+          currentBatchWordCount
+        )} كلمات بدون أي غلط ❌`
       );
       setTimeout(() => {
         setExamRound(0);
@@ -717,7 +737,7 @@ export default function EnglishWriter() {
 
   async function saveProgressAndContinue() {
     const token = localStorage.getItem("token");
-    const batchIndex = Math.floor(batchStart / 5);
+    const batchIndex = Math.floor(batchStart / batchSize);
 
     const res = await fetch(`${API}/student/progress`, {
       method: "PUT",
@@ -733,7 +753,7 @@ export default function EnglishWriter() {
       setStudent(data.student);
     }
 
-    const nextBatch = batchStart + 5;
+    const nextBatch = batchStart + currentBatchWordCount;
     const proceed = () => {
       if (nextBatch >= WORDS.length) {
         setScreen("done");
@@ -837,7 +857,9 @@ export default function EnglishWriter() {
   }
 
   // ── Progress ─────────────────────────────────────────────────────────────
-  const learnedCount = student ? student.maxBatchReached * 5 : 0;
+  const learnedCount = student
+    ? Math.min(student.maxBatchReached * batchSize, WORDS.length)
+    : 0;
   const progressPct = Math.round((learnedCount / WORDS.length) * 100);
 
   // ══════════════════════════════════════════════════════════════════════
@@ -1028,7 +1050,7 @@ export default function EnglishWriter() {
             <div style={{ ...styles.progressFill, width: progressPct + "%" }} />
           </div>
           <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>
-            أنجزت {toAr(student.maxBatchReached * 5)} من {toAr(WORDS.length)}{" "}
+            أنجزت {toAr(learnedCount)} من {toAr(WORDS.length)}{" "}
             كلمة ({toAr(progressPct)}%)
           </div>
 
@@ -1040,7 +1062,7 @@ export default function EnglishWriter() {
               width: "100%",
             }}
           >
-            {student.maxBatchReached < TOTAL_BATCHES ? (
+            {student.maxBatchReached < totalBatches ? (
               <button style={styles.btnPrimary} onClick={click(goToLearning)}>
                 متابعة الكتابة 🚀
               </button>
@@ -1137,7 +1159,7 @@ export default function EnglishWriter() {
               اختبار المجموعة {toAr(currentBatch + 1)}
             </span>
             <span style={styles.quizRound}>
-              {toAr(examRound + 1)} / ٥
+              {toAr(examRound + 1)} / {toAr(currentBatchWordCount)}
             </span>
           </div>
 
@@ -1152,7 +1174,7 @@ onClick={click(() => startWrite(batchStart))}          >
 
           {showExamHelp && (
             <div style={styles.helpPanel}>
-              {WORDS.slice(batchStart, batchStart + 5).map((w) => (
+              {WORDS.slice(batchStart, batchStart + currentBatchWordCount).map((w) => (
                 <div key={w} style={styles.helpRow}>
                   <span style={styles.helpWord}>{w}</span>
                   <span style={styles.helpMeaning}>{meaningOf(w)}</span>
@@ -1232,7 +1254,7 @@ onClick={click(() => startWrite(batchStart))}          >
 
             {showReviewHelp && !reviewSelected && (
               <div style={styles.helpPanel}>
-                {WORDS.slice(0, student.maxBatchReached * 5).map((w) => (
+                {WORDS.slice(0, student.maxBatchReached * batchSize).map((w) => (
                   <div key={w} style={styles.helpRow}>
                     <span style={styles.helpWord}>{w}</span>
                     <span style={styles.helpMeaning}>{meaningOf(w)}</span>
@@ -1326,7 +1348,7 @@ onClick={click(() => startWrite(batchStart))}          >
       </div>
 
       <div style={styles.batchDots}>
-        {Array.from({ length: TOTAL_BATCHES }).map((_, i) => (
+        {Array.from({ length: totalBatches }).map((_, i) => (
           <div
             key={i}
             style={{
@@ -1365,12 +1387,12 @@ onClick={click(() => startWrite(batchStart))}          >
               كتابة المجموعة {toAr(currentBatch + 1)}
             </span>
             <span style={styles.quizRound}>
-              {toAr(writeWordPos + 1)} / ٥
+              {toAr(writeWordPos + 1)} / {toAr(currentBatchWordCount)}
             </span>
           </div>
 
           <div style={styles.miniDots}>
-            {[0, 1, 2, 3, 4].map((i) => (
+            {Array.from({ length: currentBatchWordCount }, (_, i) => i).map((i) => (
               <div
                 key={i}
                 style={{
